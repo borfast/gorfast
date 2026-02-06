@@ -47,17 +47,19 @@ type ServerConfig struct {
 
 ### Environment Variable Naming
 
-With prefix `MYAPP_`, variables map as follows:
+With prefix `MYAPP_` and **double underscores (`__`) as separators**:
 
 | Env Variable | Koanf Path | Struct Field |
 |--------------|------------|--------------|
-| MYAPP_SERVER_HOST | server.host | Config.Server.Host |
-| MYAPP_SERVER_PORT | server.port | Config.Server.Port |
-| MYAPP_DATABASE_URL | database.url | Config.Database.URL |
-| MYAPP_DATABASE_MAX_CONNS | database.maxconns | Config.Database.MaxConns |
-| MYAPP_LOG_LEVEL | log.level | Config.Log.Level |
+| MYAPP_SERVER__HOST | server.host | Config.Server.Host |
+| MYAPP_SERVER__PORT | server.port | Config.Server.Port |
+| MYAPP_DATABASE__URL | database.url | Config.Database.URL |
+| MYAPP_DATABASE__MAX_CONNS | database.max_conns | Config.Database.MaxConns |
+| MYAPP_LOG__LEVEL | log.level | Config.Log.Level |
 
-**Pattern:** `PREFIX_SECTION_FIELD` → `section.field` (lowercase, underscores become dots)
+**Pattern:** `PREFIX_SECTION__FIELD` → `section.field`
+- **Double Underscore (`__`)**: Becomes a dot (`.`) for nesting.
+- **Single Underscore (`_`)**: Preserved (e.g., `MAX_CONNS` -> `max_conns`).
 
 ## Complete Implementation
 
@@ -107,18 +109,16 @@ type LogConfig struct {
 	Format string `koanf:"format"`
 }
 
-// defaults returns the default configuration values as a flat map.
+// defaults holds default configuration values as a flat map.
 // Keys use dot notation matching koanf paths.
-func defaults() map[string]any {
-	return map[string]any{
-		"server.host":         "localhost",
-		"server.port":         8080,
-		"server.readtimeout":  30 * time.Second,
-		"server.writetimeout": 30 * time.Second,
-		"database.maxconns":   10,
-		"log.level":           "info",
-		"log.format":          "json",
-	}
+var defaults = map[string]any{
+	"server.host":         "localhost",
+	"server.port":         8080,
+	"server.readtimeout":  30 * time.Second,
+	"server.writetimeout": 30 * time.Second,
+	"database.maxconns":   10,
+	"log.level":           "info",
+	"log.format":          "json",
 }
 
 // Load reads configuration from defaults, .env file, and environment variables.
@@ -127,7 +127,7 @@ func Load() (*Config, error) {
 	k := koanf.New(".")
 
 	// 1. Load defaults first (lowest priority)
-	if err := k.Load(confmap.Provider(defaults(), "."), nil); err != nil {
+	if err := k.Load(confmap.Provider(defaults, "."), nil); err != nil {
 		return nil, fmt.Errorf("loading defaults: %w", err)
 	}
 
@@ -157,12 +157,15 @@ func Load() (*Config, error) {
 }
 
 // transformKey converts environment variable names to koanf paths.
-// Example: MYAPP_SERVER_HOST -> server.host
+// It uses double underscores (__) as the nesting separator.
+// Example: MYAPP_SERVER__HOST -> server.host
+// Example: MYAPP_DATABASE__MAX_CONNS -> database.max_conns
 func transformKey(s string) string {
-	return strings.Replace(
-		strings.ToLower(strings.TrimPrefix(s, EnvPrefix)),
-		"_", ".", -1,
-	)
+	// Remove prefix and lowercase
+	s = strings.ToLower(strings.TrimPrefix(s, EnvPrefix))
+	// Replace double underscores with dots for nesting
+	s = strings.Replace(s, "__", ".", -1)
+	return s
 }
 
 // validate checks that all required configuration fields are set.
@@ -170,7 +173,7 @@ func validate(cfg *Config) error {
 	var errs []string
 
 	if cfg.Database.URL == "" {
-		errs = append(errs, "database.url is required (set "+EnvPrefix+"DATABASE_URL)")
+		errs = append(errs, "database.url is required (set "+EnvPrefix+"DATABASE__URL)")
 	}
 
 	if len(errs) > 0 {
@@ -211,20 +214,21 @@ Create `.env.dist` as a documented example (commit this file):
 # Application Configuration Template
 # Copy to .env and fill in values for local development
 # Environment variables override these values in production
+# Use double underscores (__) to separate sections
 
 # Server Configuration
-MYAPP_SERVER_HOST=localhost
-MYAPP_SERVER_PORT=8080
-MYAPP_SERVER_READTIMEOUT=30s
-MYAPP_SERVER_WRITETIMEOUT=30s
+MYAPP_SERVER__HOST=localhost
+MYAPP_SERVER__PORT=8080
+MYAPP_SERVER__READTIMEOUT=30s
+MYAPP_SERVER__WRITETIMEOUT=30s
 
 # Database Configuration (REQUIRED)
-MYAPP_DATABASE_URL=postgres://user:pass@localhost:5432/dbname?sslmode=disable
-MYAPP_DATABASE_MAXCONNS=10
+MYAPP_DATABASE__URL=postgres://user:pass@localhost:5432/dbname?sslmode=disable
+MYAPP_DATABASE__MAXCONNS=10
 
 # Logging Configuration
-MYAPP_LOG_LEVEL=info
-MYAPP_LOG_FORMAT=json
+MYAPP_LOG__LEVEL=info
+MYAPP_LOG__FORMAT=json
 ```
 
 ## .gitignore Patterns
@@ -255,62 +259,52 @@ Add to `.gitignore`:
    }
    ```
 
-2. **Add default** in `defaults()` if optional:
+2. **Add default** to `defaults` map if optional:
    ```go
-   func defaults() map[string]any {
-       return map[string]any{
-           // ... existing defaults
-           "redis.url": "localhost:6379",
-       }
+   var defaults = map[string]any{
+       // ... existing defaults
+       "redis.url": "localhost:6379",
    }
    ```
 
 3. **Add validation** in `validate()` if required:
    ```go
    if cfg.Redis.URL == "" {
-       errs = append(errs, "redis.url is required (set "+EnvPrefix+"REDIS_URL)")
+       errs = append(errs, "redis.url is required (set "+EnvPrefix+"REDIS__URL)")
    }
    ```
 
 4. **Update .env.dist** with documentation:
    ```bash
    # Redis Configuration
-   MYAPP_REDIS_URL=localhost:6379
+   MYAPP_REDIS__URL=localhost:6379
    ```
 
 5. **Set environment variable** following the naming convention:
    - Struct path: `Config.Redis.URL`
-   - Env var: `MYAPP_REDIS_URL`
+   - Env var: `MYAPP_REDIS__URL`
 
 ## Common Mistakes
 
 ### Case Sensitivity
 
 Environment variables are case-sensitive. Always use UPPERCASE for env vars:
-- Correct: `MYAPP_DATABASE_URL`
-- Wrong: `myapp_database_url`
+- Correct: `MYAPP_DATABASE__URL`
+- Wrong: `myapp_database__url`
 
 ### Prefix Must Match
 
-The `EnvPrefix` constant must exactly match your environment variable prefix including the trailing underscore:
-- If using `MYAPP_DATABASE_URL`, set `EnvPrefix = "MYAPP_"`
-- If using `APP_DATABASE_URL`, set `EnvPrefix = "APP_"`
+The `EnvPrefix` constant must exactly match your environment variable prefix:
+- If using `MYAPP_DATABASE__URL`, set `EnvPrefix = "MYAPP_"`
+- If using `APP_DATABASE__URL`, set `EnvPrefix = "APP_"`
 
-### Nested Struct Field Names
+### Double vs Single Underscore
 
-Koanf paths use dots, but struct tags should only contain the final segment:
+Use **double underscores (`__`)** to indicate nesting (dots), and **single underscores (`_`)** for word separation.
 
-```go
-// Correct
-type DatabaseConfig struct {
-    URL string `koanf:"url"`  // maps to "database.url"
-}
-
-// Wrong - don't include parent path in tag
-type DatabaseConfig struct {
-    URL string `koanf:"database.url"`  // This won't work
-}
-```
+- `MYAPP_DATABASE__MAX_CONNS` → `database.max_conns` (Correct for `max_conns` field)
+- `MYAPP_DATABASE_MAX_CONNS` → `database_max_conns` (Treated as a top-level field `database_max_conns`)
+- `MYAPP_DATABASE__URL` → `database.url`
 
 ### Duration Parsing
 
@@ -320,7 +314,7 @@ Koanf can parse duration strings like `30s`, `5m`, `1h`:
 ReadTimeout time.Duration `koanf:"readtimeout"`
 ```
 
-Set via: `MYAPP_SERVER_READTIMEOUT=30s`
+Set via: `MYAPP_SERVER__READTIMEOUT=30s`
 
 ## Anti-Patterns
 
@@ -374,11 +368,11 @@ Before completing configuration code:
 
 - [ ] All struct fields have `koanf` tags
 - [ ] Required fields are validated in `validate()`
-- [ ] Optional fields have defaults in `defaults()` map
-- [ ] Default keys in `defaults()` match koanf paths (e.g., `"server.host"`)
+- [ ] Optional fields have defaults in `defaults` map
+- [ ] Default keys in `defaults` match koanf paths (e.g., `"server.host"`)
 - [ ] `.env.dist` documents all variables with examples
 - [ ] `.gitignore` excludes `.env` but not `.env.dist`
 - [ ] `EnvPrefix` matches your application name
-- [ ] Environment variable names follow `PREFIX_SECTION_FIELD` pattern
+- [ ] Environment variable names follow `PREFIX_SECTION__FIELD` pattern (Double Underscore)
 - [ ] Config is loaded once at startup and passed to components
 - [ ] No global koanf instance or repeated loading
