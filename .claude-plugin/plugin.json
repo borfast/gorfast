@@ -1,0 +1,19 @@
+{
+  "name": "gorfast",
+  "version": "0.1.0",
+  "description": "Skills for building web applications in Go",
+  "author": {
+    "name": "borfast"
+  },
+  "homepage": "https://github.com/borfast/gorfast",
+  "repository": "https://github.com/borfast/gorfast",
+  "license": "MIT",
+  "keywords": [
+    "go",
+    "golang",
+    "web",
+    "configuration",
+    "koanf",
+    "skills"
+  ]
+}
