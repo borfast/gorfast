@@ -1,8 +1,10 @@
 # gorfast
 
-A Claude Code plugin holding skills for building web applications in Go. The
-repository is also its own marketplace: `.claude-plugin/marketplace.json` lists
-the plugin with `"source": "./"`.
+A Claude Code plugin holding skills for building web applications in Go. This
+repository holds only the plugin. It is listed from a separate marketplace,
+[borfast/claude-plugins-marketplace](https://github.com/borfast/claude-plugins-marketplace),
+whose entry points back here with `"source": {"source": "github", "repo":
+"borfast/gorfast"}`.
 
 ## Workflow
 
@@ -40,5 +42,7 @@ claude plugin validate .
 
 ## Versioning
 
-`plugin.json` and the matching entry in `marketplace.json` must agree on
-version. `claude plugin tag` checks this and creates the release tag.
+The version lives in `.claude-plugin/plugin.json` only — the marketplace entry
+carries no version field, so there is nothing to keep in sync there. Release
+with `claude plugin tag`, which reads that version and creates a
+`gorfast--v{version}` tag, then push the tag.
