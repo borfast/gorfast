@@ -10,3 +10,6 @@
 *.exe
 *.test
 *.out
+
+# Eval run output
+evals/*/results/

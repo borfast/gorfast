@@ -98,8 +98,9 @@ trailing underscore included.
 
 ## Anti-Patterns
 
-**Global koanf instance.** Load once into a typed struct and pass it. A package
-level `*koanf.Koanf` is mutable global state.
+**Global koanf instance.** Load once into a typed struct in `main`, then hand
+components the values they need. A package level `*koanf.Koanf` is mutable
+global state.
 
 **Loading more than once.** `Load()` belongs in `main()`, not in a getter called
 per request.
@@ -116,5 +117,5 @@ the config value instead.
 - [ ] `.env.dist` documents every variable and is committed
 - [ ] `.gitignore` excludes `.env` but keeps `.env.dist`
 - [ ] `EnvPrefix` matches the application
-- [ ] Config is loaded once at startup and passed to components
+- [ ] Config is loaded once at startup and its *values* passed to components
 - [ ] `internal/config` is imported by `main` only
