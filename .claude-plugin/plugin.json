@@ -1,6 +1,6 @@
 {
   "name": "gorfast",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Skills for building web applications in Go",
   "author": {
     "name": "borfast"

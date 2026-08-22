@@ -27,6 +27,27 @@ that overrides a built-in default without any conditional logic.
 
 Skip this for single-value throwaway scripts, where one `os.Getenv` is honest.
 
+## Where Config Lives
+
+Put the package at `internal/config/config.go`, and let **only `main` import
+it.** `main` destructures the config and hands each component what it needs:
+
+```go
+pool, err := db.Open(cfg.Database.URL, cfg.Database.MaxConns)
+srv := server.New(cfg.Server.Host, cfg.Server.Port, pool)
+```
+
+Passing `*config.Config` into every component turns config into a hub: every
+package depends on it, and it knows every package's settings. That is the same
+coupling as a global koanf instance, one indirection removed.
+
+Unexported types in `package main` (`cmd/web/config.go`) are fine while the
+binary *is* the whole application — one `cmd/`, no `internal/` packages, no test
+helpers that need the values. Switch to `internal/config` as soon as a second
+binary (`cmd/worker`, `cmd/migrate`) or any package outside `main` needs the
+type. Duplicating the struct into a second `package main` is the failure mode
+to avoid.
+
 ## Environment Variable Naming
 
 The separator convention is the part people get wrong. Double underscore nests;
@@ -96,3 +117,4 @@ the config value instead.
 - [ ] `.gitignore` excludes `.env` but keeps `.env.dist`
 - [ ] `EnvPrefix` matches the application
 - [ ] Config is loaded once at startup and passed to components
+- [ ] `internal/config` is imported by `main` only

@@ -156,6 +156,10 @@ variable name including the prefix, which is why `transformKey` trims it.
 
 ## Wiring it into main.go
 
+`main` is the only package that imports `internal/config`. It reads the config
+once and hands each component the values it needs, rather than passing
+`*config.Config` down the call tree:
+
 ```go
 package main
 
@@ -163,6 +167,8 @@ import (
 	"log"
 
 	"yourmodule/internal/config"
+	"yourmodule/internal/db"
+	"yourmodule/internal/server"
 )
 
 func main() {
@@ -171,10 +177,23 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
+	pool, err := db.Open(cfg.Database.URL, cfg.Database.MaxConns)
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer pool.Close()
+
+	srv := server.New(cfg.Server.Host, cfg.Server.Port, pool)
+
 	log.Printf("Starting server on %s:%d", cfg.Server.Host, cfg.Server.Port)
-	// Use cfg throughout your application
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("server stopped: %v", err)
+	}
 }
 ```
+
+See "Where Config Lives" in SKILL.md for when the config types belong in
+`package main` instead.
 
 ## .env.dist template
 
