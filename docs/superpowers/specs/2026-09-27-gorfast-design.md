@@ -52,8 +52,10 @@ and not a framework.
 
 2. **Contracts are interfaces. Third-party libraries are implementation details
    behind them.** Gorfast defines the interface; an adapter package implements
-   it against a specific library. No Gorfast interface mentions Bun, Redis or
-   any other dependency in its signature.
+   it against a specific library. No exported, consumer-reachable Gorfast API
+   mentions Bun, Redis or any other dependency in its signature. Packages under
+   `internal/` are exempt, because no consumer can import them, so internal test
+   infrastructure naming a driver type is not a violation.
 
 3. **Every interface Gorfast defines ships an executable conformance suite as
    public API.** This is the pattern Sulis established with its `storetest`

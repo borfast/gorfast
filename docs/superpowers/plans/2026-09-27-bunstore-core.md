@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Module path is `github.com/borfast/gorfast`. Go 1.27.
-- Doctrine rule 2: no Gorfast interface signature mentions Bun. Bun appears only inside `auth/bunstore` in this plan.
+- Doctrine rule 2: no *exported, consumer-reachable* Gorfast API mentions Bun in its signature. In this plan that means `auth/bunstore` is the only non-internal package allowed to name Bun. Packages under `internal/` are exempt, because no consumer can import them: `internal/testdb` takes and returns `*bun.DB` by design, and that is not a violation.
 - Doctrine rule 7: return Sulis's sentinel errors (`sulis.ErrUserNotFound` and the rest) directly; wrap anything else with `fmt.Errorf("...: %w", err)`. Never map an error to an HTTP status here.
 - Doctrine rule 8: tests run against real databases. SQLite always, Postgres when `GORFAST_TEST_POSTGRES_DSN` is set.
 - Doctrine rule 9 and `projects/AGENTS.md`: prefer pure functions. Model conversion is pure; stores hold only their `bun.IDB`.
