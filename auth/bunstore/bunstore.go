@@ -11,8 +11,8 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
-// sqliteConstraintUnique and sqlitePrimaryKey are SQLite's extended result
-// codes for a unique and a primary key constraint violation.
+// sqliteConstraintUnique and sqliteConstraintPrimary are SQLite's extended
+// result codes for a unique and a primary key constraint violation.
 const (
 	sqliteConstraintUnique  = 2067
 	sqliteConstraintPrimary = 1555

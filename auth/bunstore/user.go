@@ -151,9 +151,8 @@ func (s *UserStore) UpdateUser(ctx context.Context, user *sulis.User) error {
 	return nil
 }
 
-// explainFailedUpdate distinguishes the two reasons an update matched no row.
-// The UPDATE alone cannot tell them apart, and the contract names a different
-// error for each.
+// explainFailedUpdate tells a missing row from a stale version, since the
+// UPDATE alone cannot and the contract names a different error for each.
 func (s *UserStore) explainFailedUpdate(ctx context.Context, id string) error {
 	exists, err := s.db.NewSelect().Model((*userModel)(nil)).Where("id = ?", id).Exists(ctx)
 	if err != nil {
