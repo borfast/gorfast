@@ -101,10 +101,25 @@ gorfast/              github.com/borfast/gorfast
   jobs/               queue interface, worker loop, backends
   mail/               templating, sending, development mailbox
   cmd/gorfast/        the CLI
-  skills/             Claude Code skills, rewritten against this library
   examples/           reference application
   docs/
 ```
+
+The repository is also a Claude Code plugin, and stays one. The Go module sits
+alongside that packaging rather than replacing it:
+
+```
+  .claude-plugin/     the plugin manifest, distributed through
+                      borfast/claude-plugins-marketplace
+  skills/             the skills, named by what they do
+                      (loading-configuration, not gorfast-config)
+  evals/              the eval harness that grades those skills
+```
+
+So `go.mod` is at the repository root and `go get github.com/borfast/gorfast`
+works, while `/plugin install gorfast@borfast` keeps working unchanged. The
+skills describe this library and live next to it, which is the arrangement that
+stops them drifting from it.
 
 Deferred until there is a reason: observability (OpenTelemetry), i18n, an asset
 pipeline.
@@ -115,7 +130,7 @@ pipeline.
 |---|---|---|
 | Data access | Adopt [Bun](https://bun.uptrace.dev/) and build the integration around it | Struct-mapped ORM for simple CRUD, full query builder for complex work, raw SQL escape hatch, migrations and fixtures included, multi-dialect. Sits on `database/sql`, so encrypted column types work unchanged. Does not shape domain types. |
 | Where Bun appears | Only inside `data` and `auth/bunstore` | Gorfast's own contracts stay at the repository interface, so an application can swap the implementation. |
-| Configuration | Koanf, with the rules already established in `skills/gorfast-config` | Already proven in `lastmessage`. See section 5. |
+| Configuration | Koanf, with the rules already established in `skills/loading-configuration` | Already proven in `lastmessage`. See section 5. |
 | Presentation | `view` and `api` as peer packages over the same services | Keeps the core presentation-agnostic. No content negotiation. |
 | Job backends | Small interface, declared capabilities, several backends | See section 7. |
 | Module layout | One module, many packages | Simplest to develop and version while APIs are unstable. |
@@ -123,19 +138,29 @@ pipeline.
 
 ## 5. `core/config`
 
-Carried over unchanged from `skills/gorfast-config`, which is already proven in
+Carried over from `skills/loading-configuration`, which is already proven in
 `lastmessage`:
 
 - Layered loading, later sources overriding earlier: defaults, then `.env`, then
   environment variables.
 - Environment variable naming `PREFIX_SECTION__FIELD`. A double underscore
   becomes a dot for nesting; a single underscore is preserved.
-- Typed structs with `koanf` tags. No stringly-typed access.
+- Typed structs with `koanf` tags, and the tags are **snake_case**. This is not
+  cosmetic: a squashed `koanf:"maxconns"` silently discards
+  `MYAPP_DATABASE__MAX_CONNS` and uses the default instead, which is one of the
+  four defects commit `ef1bafb` fixed. No stringly-typed access.
 - One central `validate()` reporting all missing required fields together, each
   naming the environment variable that sets it.
 - Loaded once at startup and passed as a typed value. No global koanf instance,
   no reloading per request.
 - `.env.dist` committed and documented, `.env` ignored.
+
+One further rule, added upstream in `be3d78a` and adopted here because it says
+the same thing doctrine rule 1 says: the config package lives at
+`internal/config` and **only `main` imports it**. `main` destructures the config
+and hands each component the values it needs, rather than passing
+`*config.Config` around. Passing the whole config everywhere makes it a hub that
+every package depends on, which is the coupling this library exists to avoid.
 
 Gorfast's contribution on top of the skill is the reusable parts: the key
 transform function, the layered `Load` helper parameterised by prefix and
@@ -212,9 +237,12 @@ Design points:
 - **The hard contracts map to single statements**, so none of them needs an
   explicit transaction:
   - `UpdateUser`: `UPDATE ... SET ..., version = version + 1 WHERE id = ? AND
-    version = ?`. Zero rows affected means another writer won, so return
-    `sulis.ErrConcurrentUpdate`. A unique constraint violation on the live email
-    returns `sulis.ErrUserAlreadyExists`.
+    version = ?`. Zero rows affected is ambiguous, because it means either that
+    another writer won or that no such user exists, and `memstore` returns a
+    different error for each. So a follow-up existence check on the id chooses
+    between `sulis.ErrConcurrentUpdate` and `sulis.ErrUserNotFound`. A unique
+    constraint violation on the live email returns `sulis.ErrUserAlreadyExists`.
+    The caller's own `user.Version` is left untouched, matching `memstore`.
   - `ConsumeToken`: one `UPDATE ... WHERE hash = ? AND purpose = ? AND used =
     false ... RETURNING *`. No match means either not found or already used, so
     the implementation distinguishes them with a follow-up read to choose
@@ -287,9 +315,10 @@ designed on paper ahead of a real consumer.
 7. `cmd/gorfast` and the skills rewrite. Last, because a generator can only be
    written once the API it generates against is real.
 
-The existing `skills/gorfast-auth` is dropped. It is outdated, and its
-frontmatter declares `name: gorfast-config`, which collides with the other
-skill.
+`skills/gorfast-auth` was already deleted upstream in `ef1bafb`, so there is
+nothing to drop. `skills/gorfast-config` became `skills/loading-configuration`
+in the same commit, split into a `SKILL.md` carrying the concepts and a
+`references/` directory carrying the code.
 
 ## 9. Known gaps
 
