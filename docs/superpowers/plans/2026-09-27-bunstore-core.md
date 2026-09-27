@@ -17,7 +17,8 @@
 - Doctrine rule 7: return Sulis's sentinel errors (`sulis.ErrUserNotFound` and the rest) directly; wrap anything else with `fmt.Errorf("...: %w", err)`. Never map an error to an HTTP status here.
 - Doctrine rule 8: tests run against real databases. SQLite always, Postgres when `GORFAST_TEST_POSTGRES_DSN` is set.
 - Doctrine rule 9 and `projects/AGENTS.md`: prefer pure functions. Model conversion is pure; stores hold only their `bun.IDB`.
-- No em-dashes anywhere, including code comments. Code comments are at most 2 lines.
+- No em-dashes anywhere, including code comments.
+- Implementation comments are at most 2 lines. Exported doc comments (package docs and doc comments on exported symbols) are exempt: Go convention requires them to be complete, and Sulis, the library this one is built against, documents every store interface at length. The cap targets inline noise, not documentation.
 - Every store method takes `ctx context.Context` as its first argument and passes it to Bun.
 - Work happens in the worktree at `/home/borfast/projects/gorfast/.claude/worktrees/bunstore-core`, on branch `worktree-bunstore-core`. Never `cd` to the main checkout.
 - **Every commit uses `git commit --no-gpg-sign`.** The repository signs commits with an SSH key whose agent the sandbox cannot reach, so a plain `git commit` fails with `ssh_askpass: exec(/usr/bin/ssh-askpass): No such file or directory`. Do not try to fix that, and do not change any git config: `.git/config` is deliberately not writable here.
