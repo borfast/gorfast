@@ -84,15 +84,19 @@ go get github.com/uptrace/bun/dialect/pgdialect@latest
 go get github.com/uptrace/bun/dialect/sqlitedialect@latest
 go get github.com/uptrace/bun/driver/pgdriver@latest
 go get modernc.org/sqlite@latest
-go get github.com/borfast/sulis@latest
 ```
 
-If `github.com/borfast/sulis` is not yet published at a version containing `storetest`, add a replace directive instead:
+**`go get` needs network access.** Pass these to the Bash tool's `allowed_domains` on every command that fetches modules: `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com`.
+
+Sulis is deliberately NOT fetched from the proxy. Its only published tag, `v0.1.0`, is 46 commits behind the local checkout this plan was written against, and `storetest` is the acceptance criterion, so a stale copy would test the wrong contract. Point at the local source:
 
 ```bash
+go mod edit -require=github.com/borfast/sulis@v0.1.0
 go mod edit -replace github.com/borfast/sulis=/home/borfast/projects/sulis
 go mod tidy
 ```
+
+The `require` line names `v0.1.0` only to satisfy the module graph; the `replace` means the build reads `/home/borfast/projects/sulis` and the version is never consulted. Do not remove the replace directive, and do not try to `go get` sulis instead: that is a deliberate decision, not an oversight.
 
 - [ ] **Step 2: Write the Postgres schema**
 
