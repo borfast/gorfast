@@ -13,3 +13,6 @@
 
 # Eval run output
 evals/*/results/
+
+# Claude Code local state, including worktrees holding unmerged branches
+.claude/

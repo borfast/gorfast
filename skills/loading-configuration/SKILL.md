@@ -116,6 +116,6 @@ the config value instead.
 - [ ] Required fields are checked in `validate()`; optional ones have defaults
 - [ ] `.env.dist` documents every variable and is committed
 - [ ] `.gitignore` excludes `.env` but keeps `.env.dist`
-- [ ] `EnvPrefix` matches the application
+- [ ] `EnvPrefix` matches the application, or a short form of it: `MYAPP_`, `GORFAST_`, "Family Photos" becomes `FP_`
 - [ ] Config is loaded once at startup and its *values* passed to components
 - [ ] `internal/config` is imported by `main` only
