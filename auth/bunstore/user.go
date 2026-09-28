@@ -80,12 +80,19 @@ func NewUserStore(db bun.IDB) *UserStore {
 }
 
 func (s *UserStore) CreateUser(ctx context.Context, user *sulis.User) error {
-	_, err := s.db.NewInsert().Model(toUserModel(user)).Exec(ctx)
+	res, err := s.db.NewInsert().Model(toUserModel(user)).On("CONFLICT DO NOTHING").Exec(ctx)
 	if isUniqueViolation(err) {
 		return sulis.ErrUserAlreadyExists
 	}
 	if err != nil {
 		return fmt.Errorf("bunstore: creating user: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("bunstore: creating user: %w", err)
+	}
+	if n == 0 {
+		return sulis.ErrUserAlreadyExists
 	}
 
 	return nil

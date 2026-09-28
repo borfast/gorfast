@@ -64,7 +64,9 @@ func openSQLite(t *testing.T) *bun.DB {
 		t.Fatalf("opening sqlite: %v", err)
 	}
 
-	return migrate(t, bun.NewDB(sqldb, sqlitedialect.New()))
+	db := bun.NewDB(sqldb, sqlitedialect.New())
+	t.Cleanup(func() { _ = db.Close() })
+	return migrate(t, db)
 }
 
 // openPostgres gives each test its own schema, so tests never collide and

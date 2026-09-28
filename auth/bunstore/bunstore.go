@@ -25,6 +25,9 @@ const (
 // package does not depend on a driver it never opens.
 type coder interface{ Code() int }
 
+// sqlStater matches PostgreSQL errors from drivers such as pgx.
+type sqlStater interface{ SQLState() string }
+
 // isUniqueViolation reports whether err is a unique constraint violation, on
 // either dialect. Callers turn it into the sentinel their contract names.
 func isUniqueViolation(err error) bool {
@@ -35,6 +38,10 @@ func isUniqueViolation(err error) bool {
 	var pgErr pgdriver.Error
 	if errors.As(err, &pgErr) {
 		return pgErr.Field('C') == "23505"
+	}
+	var pgState sqlStater
+	if errors.As(err, &pgState) {
+		return pgState.SQLState() == "23505"
 	}
 
 	var c coder
