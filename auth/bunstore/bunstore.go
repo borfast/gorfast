@@ -5,7 +5,9 @@
 package bunstore
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -41,4 +43,19 @@ func isUniqueViolation(err error) bool {
 
 	// modernc.org/sqlite has not always exposed Code() on every error path.
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// requireOneRow turns an affected-row count of zero into notFound. Several
+// contracts depend on a scoped statement affecting nothing being an error
+// rather than a silent success.
+func requireOneRow(res sql.Result, notFound error, what string) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("bunstore: %s: %w", what, err)
+	}
+	if n == 0 {
+		return notFound
+	}
+
+	return nil
 }
