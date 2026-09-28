@@ -45,9 +45,8 @@ func isUniqueViolation(err error) bool {
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-// requireOneRow turns an affected-row count of zero into notFound. Several
-// contracts depend on a scoped statement affecting nothing being an error
-// rather than a silent success.
+// requireOneRow turns an affected-row count of zero into notFound.
+// Several contracts require a scoped statement matching nothing to be an error.
 func requireOneRow(res sql.Result, notFound error, what string) error {
 	n, err := res.RowsAffected()
 	if err != nil {

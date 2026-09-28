@@ -87,7 +87,6 @@ func (s *TokenStore) ConsumeToken(ctx context.Context, hash string, purpose suli
 		Returning("*").
 		Scan(ctx)
 	if err == nil {
-		m.Used = true
 		return fromTokenModel(m), nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -97,10 +96,8 @@ func (s *TokenStore) ConsumeToken(ctx context.Context, hash string, purpose suli
 	return nil, s.explainFailedConsume(ctx, hash, purpose)
 }
 
-// explainFailedConsume distinguishes a token that does not exist from one
-// already spent. The UPDATE alone cannot, and the contract names an error for
-// each. A token never goes back to unused, so this follow-up read cannot be
-// wrong about which case it is.
+// explainFailedConsume tells "no such token" from "already used" apart,
+// since a token never reverts to unused once the UPDATE marks it.
 func (s *TokenStore) explainFailedConsume(ctx context.Context, hash string, purpose sulis.TokenPurpose) error {
 	exists, err := s.db.NewSelect().
 		Model((*tokenModel)(nil)).
