@@ -1,6 +1,6 @@
 module github.com/borfast/gorfast
 
-go 1.27.1
+go 1.27.0
 
 replace github.com/borfast/sulis => /home/borfast/projects/sulis
 

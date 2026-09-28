@@ -39,6 +39,27 @@ Skills use progressive disclosure: `SKILL.md` carries the concepts and the
 naming conventions, and the heavy implementation lives under `references/`,
 read only when it is actually needed.
 
+## Go module
+
+This repository also holds a Go module, `github.com/borfast/gorfast`.
+`auth/bunstore` provides [Bun](https://bun.uptrace.dev/)-backed implementations
+of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, for
+Postgres and SQLite.
+
+Run the tests with:
+
+```bash
+go test ./...
+```
+
+SQLite runs with no setup. Postgres tests skip unless a database is
+available: `docker compose up -d postgres`, then set
+`GORFAST_TEST_POSTGRES_DSN='postgres://gorfast:gorfast@localhost:5433/gorfast_test?sslmode=disable'`.
+
+`go.mod` currently carries a `replace` pointing at a local sulis checkout, so
+this module is not `go get`-able until sulis tags a release containing the
+current store interfaces.
+
 ## Development
 
 This repo follows the [Superpowers](https://github.com/obra/superpowers)

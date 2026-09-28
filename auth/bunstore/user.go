@@ -9,6 +9,7 @@ import (
 
 	"github.com/borfast/sulis"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 )
 
 type userModel struct {
@@ -65,16 +66,6 @@ func fromUserModel(m *userModel) *sulis.User {
 	}
 }
 
-// utcPtr normalises a nullable timestamp. SQLite returns local times, so
-// without this the same value compares unequal across dialects.
-func utcPtr(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	u := t.UTC()
-	return &u
-}
-
 // UserStore implements sulis.UserStore.
 type UserStore struct {
 	db bun.IDB
@@ -101,21 +92,28 @@ func (s *UserStore) CreateUser(ctx context.Context, user *sulis.User) error {
 }
 
 func (s *UserStore) GetUserByID(ctx context.Context, id string) (*sulis.User, error) {
-	return s.getUserBy(ctx, "id", id)
+	return s.getUserBy(ctx, "id", "id = ?", id)
 }
 
+// GetUserByEmail compares case-insensitively, matching the unique index. On
+// Postgres that means lower(email) = lower(?); on SQLite the email column's
+// own COLLATE NOCASE already makes a plain equality case-insensitive.
 func (s *UserStore) GetUserByEmail(ctx context.Context, email string) (*sulis.User, error) {
-	return s.getUserBy(ctx, "email", email)
+	where := "email = ?"
+	if s.db.Dialect().Name() == dialect.PG {
+		where = "lower(email) = lower(?)"
+	}
+	return s.getUserBy(ctx, "email", where, email)
 }
 
-func (s *UserStore) getUserBy(ctx context.Context, column, value string) (*sulis.User, error) {
+func (s *UserStore) getUserBy(ctx context.Context, what, where, value string) (*sulis.User, error) {
 	m := new(userModel)
-	err := s.db.NewSelect().Model(m).Where("? = ?", bun.Ident(column), value).Scan(ctx)
+	err := s.db.NewSelect().Model(m).Where(where, value).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, sulis.ErrUserNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("bunstore: reading user by %s: %w", column, err)
+		return nil, fmt.Errorf("bunstore: reading user by %s: %w", what, err)
 	}
 
 	return fromUserModel(m), nil

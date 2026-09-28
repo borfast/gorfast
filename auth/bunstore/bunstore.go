@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun/driver/pgdriver"
 )
@@ -57,4 +58,14 @@ func requireOneRow(res sql.Result, notFound error, what string) error {
 	}
 
 	return nil
+}
+
+// utcPtr normalises a nullable timestamp. SQLite returns local times, so
+// without this the same value compares unequal across dialects.
+func utcPtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
