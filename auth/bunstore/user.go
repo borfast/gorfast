@@ -129,23 +129,27 @@ func (s *UserStore) getUserBy(ctx context.Context, what, where, value string) (*
 // UpdateUser applies the write only while the stored version still matches
 // user.Version, and leaves user.Version alone, matching memstore.
 func (s *UserStore) UpdateUser(ctx context.Context, user *sulis.User) error {
-	res, err := s.db.NewUpdate().
-		Model(toUserModel(user)).
-		Column("email", "password_hash", "updated_at", "metadata",
-			"email_verified_at", "pending_email", "disabled_at",
-			"disabled_reason", "locked_until", "failed_login_attempts").
-		Set("version = version + 1").
-		Where("id = ?", user.ID).
-		Where("version = ?", user.Version).
-		Exec(ctx)
+	var n int64
+	// A savepoint keeps a unique violation from aborting the caller's transaction.
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().
+			Model(toUserModel(user)).
+			Column("email", "password_hash", "updated_at", "metadata",
+				"email_verified_at", "pending_email", "disabled_at",
+				"disabled_reason", "locked_until", "failed_login_attempts").
+			Set("version = version + 1").
+			Where("id = ?", user.ID).
+			Where("version = ?", user.Version).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		return err
+	})
 	if isUniqueViolation(err) {
 		return sulis.ErrUserAlreadyExists
 	}
-	if err != nil {
-		return fmt.Errorf("bunstore: updating user: %w", err)
-	}
-
-	n, err := res.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("bunstore: updating user: %w", err)
 	}

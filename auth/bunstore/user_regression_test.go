@@ -100,14 +100,12 @@ func TestPostgresDuplicateUserDrivers(t *testing.T) {
 				if !errors.Is(err, sulis.ErrUserAlreadyExists) {
 					t.Fatalf("%s: got %v, want ErrUserAlreadyExists", operation, err)
 				}
-				if operation != "duplicate_email_update" {
-					got, err := store.GetUserByEmail(ctx, "ONE@example.test")
-					if err != nil {
-						t.Fatalf("lookup after duplicate create: %v", err)
-					}
-					if got.ID != first.ID {
-						t.Fatalf("lookup returned %q, want %q", got.ID, first.ID)
-					}
+				got, err := store.GetUserByEmail(ctx, "ONE@example.test")
+				if err != nil {
+					t.Fatalf("lookup after duplicate create: %v", err)
+				}
+				if got.ID != first.ID {
+					t.Fatalf("lookup returned %q, want %q", got.ID, first.ID)
 				}
 			})
 		}
