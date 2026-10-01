@@ -56,8 +56,8 @@ SQLite runs with no setup. Postgres tests skip unless a database is
 available: `docker compose up -d postgres`, then set
 `GORFAST_TEST_POSTGRES_DSN='postgres://gorfast:gorfast@localhost:5433/gorfast_test?sslmode=disable'`.
 
-`go.mod` pins a published Sulis pseudo-version containing the store interfaces
-and test precision fix. A local Sulis checkout is not required. For local
+`go.mod` requires Sulis `v0.2.0`, the first release containing the store
+interfaces these stores implement. A local Sulis checkout is not required. For local
 development against a different Sulis checkout, use a personal, untracked
 `go.work` override rather than changing the committed module dependency.
 
