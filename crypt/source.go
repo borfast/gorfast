@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 )
 
 // KeySource supplies keys in order, with the current key first.
@@ -12,19 +13,29 @@ type KeySource interface {
 	Keys(ctx context.Context) ([]Key, error)
 }
 
-type staticKeys []string
+type staticKeys struct {
+	// Two pointers stop fmt's fallback from dereferencing secret specs.
+	specs **[]string
+}
 
 // StaticKeys supplies keys by parsing the specs on every Keys call.
 func StaticKeys(specs ...string) KeySource {
-	return staticKeys(append([]string(nil), specs...))
+	copied := append([]string(nil), specs...)
+	stored := &copied
+	return staticKeys{specs: &stored}
+}
+
+func (s staticKeys) Format(f fmt.State, verb rune) {
+	io.WriteString(f, "crypt.StaticKeys(redacted)")
 }
 
 func (s staticKeys) Keys(ctx context.Context) ([]Key, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	keys := make([]Key, len(s))
-	for i, spec := range s {
+	specs := **s.specs
+	keys := make([]Key, len(specs))
+	for i, spec := range specs {
 		key, err := ParseKey(spec)
 		if err != nil {
 			return nil, fmt.Errorf("crypt: key %d: %w", i+1, err)

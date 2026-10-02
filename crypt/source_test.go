@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -128,5 +130,80 @@ func TestStaticKeysParsesEveryCall(t *testing.T) {
 			t.Fatal("Keys changed key identity or order")
 		}
 		keys[0] = crypt.Key{}
+	}
+}
+
+func TestStaticKeysFormatting(t *testing.T) {
+	materials := [][]byte{
+		[]byte("static-key-secret-material-123456"),
+		bytes.Repeat([]byte{0x5c}, 32),
+	}
+	valid := []string{
+		"xchacha20poly1305:" + base64.StdEncoding.EncodeToString(materials[0]),
+		"aes256gcm:" + base64.StdEncoding.EncodeToString(materials[1]),
+	}
+	marker := "recognizable-secret-marker!"
+	cases := []struct {
+		name  string
+		specs []string
+	}{
+		{"valid", valid},
+		{"malformed", []string{valid[0], "aes256gcm:" + marker}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var forbidden []string
+			secrets := append([][]byte{[]byte(marker)}, materials...)
+			for _, spec := range tc.specs {
+				secrets = append(secrets, []byte(spec))
+			}
+			for _, secret := range secrets {
+				encoded := hex.EncodeToString(secret)
+				forbidden = append(forbidden, string(secret), base64.StdEncoding.EncodeToString(secret),
+					encoded, strings.ToUpper(encoded), fmt.Sprint(secret))
+			}
+			src := crypt.StaticKeys(tc.specs...)
+			config := struct {
+				source  crypt.KeySource
+				sources []crypt.KeySource
+			}{src, []crypt.KeySource{src}}
+			values := []struct {
+				name  string
+				value any
+			}{
+				{"direct", src},
+				{"slice", []crypt.KeySource{src}},
+				{"config", config},
+				{"config-pointer", &config},
+			}
+			for _, value := range values {
+				t.Run(value.name, func(t *testing.T) {
+					for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%X", "%d"} {
+						t.Run(format, func(t *testing.T) {
+							output := fmt.Sprintf(format, value.value)
+							for _, secret := range forbidden {
+								if strings.Contains(output, secret) {
+									t.Fatal("formatting reveals secret material")
+								}
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestStaticKeysCopiesSpecs(t *testing.T) {
+	a, b := mustKey(t, crypt.XChaCha20Poly1305), mustKey(t, crypt.AES256GCM)
+	specs := []string{a.Spec(), b.Spec()}
+	src := crypt.StaticKeys(specs...)
+	specs[0], specs[1] = "invalid", "invalid"
+	keys, err := src.Keys(t.Context())
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("Keys returned %d keys, %v; want two keys", len(keys), err)
+	}
+	if keys[0].Spec() != a.Spec() || keys[1].Spec() != b.Spec() {
+		t.Fatal("Keys changed copied key material or order")
 	}
 }
