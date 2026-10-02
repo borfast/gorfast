@@ -1,0 +1,9 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: gorfast
+      POSTGRES_PASSWORD: gorfast
+      POSTGRES_DB: gorfast_test
+    ports:
+      - "5433:5432"
