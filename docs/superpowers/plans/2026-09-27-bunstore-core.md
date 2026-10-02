@@ -1,5 +1,24 @@
 # Bunstore Core Implementation Plan
 
+> **Superseded: historical record, not current instructions.** This plan was
+> executed and merged in PR #1 (`f7504ae`). Several of its instructions are now
+> wrong; do not follow them:
+>
+> - **Second-factor stores do not need `crypt`.** Sulis encrypts TOTP secrets
+>   before they reach a store. See section 6.1 of the main design doc.
+> - **Sulis is a tagged dependency, not a local `replace`.** `go.mod` requires
+>   `github.com/borfast/sulis v0.2.1`; the instruction never to remove the
+>   `replace` no longer applies.
+> - **Commits are signed.** The `--no-gpg-sign` instructions were a sandbox
+>   workaround; both repositories' rulesets require signed commits.
+> - **Doctrine rule 2** now allows adapters to name their dependency in
+>   constructors; the wording in this plan's Global Constraints is outdated.
+> - **`storetest` is not the whole acceptance criterion.** Doctrine rule 3 now
+>   also requires adapter-specific integration tests.
+> - **The migrations and email index shown here were replaced:** migrations run
+>   every dialect file in one transaction with `IF NOT EXISTS`, and email
+>   uniqueness is case-insensitive. The code is the reference, not this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement `sulis.UserStore`, `sulis.SessionStore` and `sulis.TokenStore` over Bun, so a Sulis application can run password login, magic links, password reset and email verification against Postgres or SQLite.

@@ -52,10 +52,13 @@ and not a framework.
 
 2. **Contracts are interfaces. Third-party libraries are implementation details
    behind them.** Gorfast defines the interface; an adapter package implements
-   it against a specific library. No exported, consumer-reachable Gorfast API
-   mentions Bun, Redis or any other dependency in its signature. Packages under
-   `internal/` are exempt, because no consumer can import them, so internal test
-   infrastructure naming a driver type is not a violation.
+   it against a specific library. Domain and service contracts never mention
+   Bun, Redis or any other dependency. An explicitly named adapter, such as
+   `auth/bunstore`, may name its dependency in its constructors, as
+   `NewUserStore(db bun.IDB)` does: an adapter exists to connect one library,
+   and hiding that behind a second abstraction would add nothing. Code that
+   depends on the contract stays replaceable; only the wiring in `main` sees
+   the adapter. Packages under `internal/` are not public API at all.
 
 3. **Every interface Gorfast defines ships an executable conformance suite as
    public API.** This is the pattern Sulis established with its `storetest`
@@ -64,15 +67,25 @@ and not a framework.
    sentinels); the conformance suite proves an implementation meets them. This
    is what makes "swap the backend" a real promise rather than a hopeful one.
 
+   A conformance suite is the floor, not the whole of correctness. Every
+   adapter also carries its own integration tests for what the shared suite
+   cannot know about: driver-specific errors, behaviour inside a caller's
+   transaction, resource cleanup, and dependency reproducibility. PR #1 showed
+   why: `auth/bunstore` passed every Sulis conformance test while a duplicate
+   insert still aborted the caller's Postgres transaction and pgx errors went
+   unrecognised.
+
 4. **Constructor plus functional options**, matching Sulis:
-   `data.New(db, data.WithEncryption(k))`.
+   `sulis.New(users, sessions, tokens, checker, sulis.WithEventSink(sink))`.
 
 5. **Safe by default, opt out visibly.** Every default is the secure choice.
    Turning one off is a visible call a reviewer can find, never the silent
    result of forgetting something. Inherited from Sulis and applied everywhere:
    fields declared encrypted are encrypted, CSRF is on, transactions roll back
    on panic, a backend that cannot provide a requested guarantee refuses at
-   startup instead of degrading quietly.
+   startup instead of degrading quietly. Rolling back on an ordinary error is
+   not a safe default, because some writes must survive a failure; see
+   section 10.
 
 6. **Layering.** Pure `domain` types at the centre, `service` around them,
    `storage` and `transport` at the edges. Presentation is a peer choice, not a
@@ -84,7 +97,9 @@ and not a framework.
    repository.
 
 8. **Storage tests run against real databases, never mocks.** Postgres and
-   SQLite.
+   SQLite. Locally the Postgres half may skip when no database is configured;
+   CI must run it as a required check, so a skipped Postgres run can never be
+   mistaken for a passing one.
 
 9. **Functional style where Go allows it.** Prefer pure functions and values
    over methods that mutate shared state.
@@ -95,7 +110,7 @@ and not a framework.
 gorfast/              github.com/borfast/gorfast
   core/               config (koanf), logging (slog), lifecycle, graceful shutdown
   crypt/              encryption at rest: keyring, versioned envelope, Sealed column type
-  data/               Bun integration: connection, transaction-per-request, fixtures, seeding
+  data/               Bun integration: connection, transaction helpers (section 10), fixtures, seeding
   auth/bunstore/      Sulis store interfaces implemented over Bun
   http/               router, middleware stack, request binding and validation, error mapping
   view/               html/template layouts and partials, forms, flash, CSRF, HTMX helpers
@@ -213,8 +228,8 @@ Design points:
   case before anything else depends on it.
 
 - **Stores accept `bun.IDB`, not `*bun.DB`.** The same store then works against
-  a connection or inside a transaction unchanged. This is the seam that
-  transaction-per-request will use in `data`.
+  a connection or inside a transaction unchanged. This is the seam the
+  service-level transactions in section 10 use.
 
 - **The hard contracts map to single statements**, so none of them needs an
   explicit transaction:
@@ -273,14 +288,28 @@ The design that follows from this:
   capability the configured backend does not have fails at startup with a clear
   message. It never degrades silently, per doctrine rule 5.
 - **Retry, backoff and dead-lettering live in Gorfast's worker loop**, not in
-  each backend, so behaviour is identical across backends. Only the primitives
-  differ.
+  each backend. That keeps the policy in one place, but it does not by itself
+  make backends behave identically: see the contract below.
 - **Postgres is the default.** Its enqueue accepts a `bun.IDB`, so a job can be
   queued in the same transaction as the business write that justifies it, and
   can never fire for work that rolled back. That is the single strongest reason
   to prefer it, and it composes directly with the seam from slice 1.
 - A conformance suite proves every backend behaves identically for the
   capabilities it claims.
+
+Before any backend beyond Postgres, the job contract must state its failure
+semantics: the delivery guarantee (at least once, so a job may run more than
+once), what happens when a worker crashes mid-job, where retry state is kept
+durably, what an acknowledgement that fails to reach the backend means, and
+therefore that every handler must be idempotent. RabbitMQ documents
+redelivery and recommends idempotent consumers
+([reliability guide](https://www.rabbitmq.com/docs/reliability)); a portable
+contract has to assume the same of every backend.
+
+**Postgres comes first, alone.** The portable contract is then derived from
+what it demonstrably needed, before Redis or RabbitMQ adapters are committed
+to, in keeping with section 8's rule that nothing is designed ahead of a real
+consumer.
 
 ## 8. Sequencing
 
@@ -293,8 +322,16 @@ designed on paper ahead of a real consumer.
 2. `core` and `data`, extracted from what slice 1 turned out to need.
 3. `http`.
 4. `view` and `api`, as peers.
-5. `examples/`: one signed-in CRUD application proving steps 1 to 4, built
-   HTML-first with JSON endpoints beside it.
+5. `examples/` completed: a signed-in CRUD application covering steps 1 to 4,
+   built HTML-first with JSON endpoints beside it.
+
+The example application does not wait for step 5. It starts small as soon as
+step 2 begins and grows with each package, because composition problems only
+show up when packages are wired together, and isolated packages hide them. Its
+first operation should be signed in, run inside a transaction, and write an
+encrypted field: that one flow exercises `auth/bunstore`, `crypt`, the
+transaction semantics of section 10, and later CSRF and forms in `http` and
+`view`.
 6. `jobs` and `mail`.
 7. `cmd/gorfast` and the skills rewrite. Last, because a generator can only be
    written once the API it generates against is real.
@@ -312,9 +349,50 @@ Recorded so they are choices rather than oversights.
   needs to query one.
 - A KMS key source for `crypt` and secrets-manager support in `core/config`.
   Planned, each its own piece of work; see the `crypt` spec, section 9.
-- Sulis's `totp` and `passkey` subpackages have no event sink, so security
-  events from them cannot be captured yet. This is Sulis's gap, not Gorfast's.
+- Sulis's `totp` subpackage has no event sink, so its security events cannot
+  be captured yet. `passkey` gained one in Sulis v0.2.0. This is Sulis's gap,
+  not Gorfast's.
+- **Gorfast has no CI.** Every test so far, including PR #1's suite on both
+  databases, has only run on developer machines. A workflow with a required
+  Postgres job, per doctrine rule 8, is the next task after this document's
+  current revision.
 - Sulis's default rate limiter is per-process, not shared across instances. A
   multi-instance deployment needs a shared limiter, which Gorfast should provide
   once `data` exists.
 - Observability, i18n and asset pipeline are all unaddressed.
+
+## 10. Transactions
+
+Added after `docs/reviews/2026-10-02-architecture-design-review.md`, which
+pointed out that accepting `bun.IDB` provides a transaction seam but does not
+decide the transaction lifecycle. These rules replace the earlier idea of a
+transaction-per-request default.
+
+- **The service operation is the transaction boundary, not the HTTP request.**
+  A service method decides whether it needs a transaction, opens one with
+  `RunInTx` on the `bun.IDB` it was given, and passes the `bun.Tx` to the
+  stores it uses. Stores never commit on their own account. The one exception
+  is an internal savepoint that keeps a caller's transaction usable after an
+  expected failure, as `UserStore.UpdateUser` does.
+- **Each operation decides which writes survive a failure.** An error from an
+  operation does not mean "undo everything". Sulis's `Login` is the concrete
+  case: it records a failed attempt through `UpdateUser`, then returns
+  `ErrInvalidCredentials`. Run inside a transaction that rolls back because
+  `Login` returned an error, that write disappears and account lockout never
+  triggers. Security bookkeeping of this kind must be committed whatever the
+  outcome: either it runs outside the operation's transaction, or the
+  operation commits and then returns its error.
+- **Commit before responding.** A handler never writes a success response
+  before the commit has succeeded, and a failed commit is reported as a
+  failure, not swallowed after the client has been told it worked.
+- **External effects happen after commit.** Email, calls to other services,
+  and anything else that cannot be rolled back must not happen inside a
+  transaction that might still roll back. The intended mechanism is a
+  transactional outbox: enqueue a Postgres job in the same transaction
+  (section 7) and perform the effect from the job, after commit. Until `jobs`
+  exists, perform the effect after commit and accept that a crash between the
+  two loses it.
+- **A panic rolls back** (doctrine rule 5).
+- **HTTP middleware comes last.** A transaction convenience in `http` is only
+  added once these rules have been exercised in the example application, and
+  rolling back on any error is never its default.

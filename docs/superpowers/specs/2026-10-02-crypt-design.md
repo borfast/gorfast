@@ -1,7 +1,9 @@
 # `crypt`: design
 
 **Date:** 2026-10-02
-**Status:** Approved in conversation, pending review of this written spec
+**Status:** Approved in conversation; revised after
+`docs/reviews/2026-10-02-architecture-design-review.md`; pending review of this
+written spec
 **Replaces:** section 6.1 of `2026-09-27-gorfast-design.md`
 
 ## 1. Purpose
@@ -26,8 +28,8 @@ import it, and it imports nothing from Gorfast and nothing from Bun.
 | Google Tink | Rejected | Its value is misuse-resistance across many primitives we do not use. Its keyset format is opaque in config, and without a KMS it loads keys through a package named `insecurecleartextkeyset`, the same trust model as a plain key with more complexity. If it ever becomes the right answer, it is one more implementation behind `Encryptor`, at the cost of re-encrypting stored data. |
 | libsodium | Rejected | Reachable from Go only through cgo, which breaks pure-Go builds and cross-compilation. Its AEAD is XChaCha20-Poly1305, already available natively in `x/crypto`. |
 | Algorithms | AES-256-GCM and XChaCha20-Poly1305, chosen per key | The user requires the choice. Each key is bound to exactly one algorithm. |
-| Default for new keys | XChaCha20-Poly1305 | Its 24-byte random nonce has no practical limit per key. AES-256-GCM's 12-byte random nonce is safe for about 2^32 encryptions per key. For column-sized values the speed difference does not matter. |
-| Binding to location | Required `context` argument on every `Seal` and `Open` | Without it, a ciphertext copied to another row still opens. Opting out means passing `nil`, a visible choice, per doctrine rule 5. |
+| Default for new keys | XChaCha20-Poly1305 | Its 24-byte random nonce has no practical limit per key. AES-256-GCM with random nonces has a hard limit per key, which section 6 turns into an operational requirement. For column-sized values the speed difference does not matter. |
+| Binding to location | Required `binding` argument on every `Seal` and `Open` | Without it, a ciphertext copied to another row still opens. Opting out means passing `nil`, a visible choice, per doctrine rule 5. Section 6 states what a binding must contain. |
 | Column types | One `Sealed` type that only carries ciphertext | `driver.Valuer` and `sql.Scanner` receive no key, so a type that encrypted itself would need a global, which doctrine forbids. Sealing happens explicitly in a store's model conversion instead. |
 | TOTP adapter from the original spec | Dropped | Sulis's `totp.Service` encrypts the secret itself before calling the store, and the store contract states the store never sees a usable secret. A Gorfast TOTP store stores an opaque string and needs nothing from `crypt`. |
 
@@ -35,19 +37,24 @@ import it, and it imports nothing from Gorfast and nothing from Bun.
 
 ```go
 // Encryptor is what every caller depends on. It reveals nothing about the
-// format or where keys come from.
+// format or where keys come from. Other implementations must pass crypttest.
 type Encryptor interface {
-    Seal(plaintext, context []byte) (Sealed, error)
-    Open(s Sealed, context []byte) ([]byte, error)
+    Seal(plaintext, binding []byte) (Sealed, error)
+    Open(s Sealed, binding []byte) ([]byte, error)
 }
 
-// Sealed holds ciphertext only. Its bytes are unexported, so the only ways
-// to obtain a non-empty Sealed are Seal and scanning one from a database.
+// Sealed carries ciphertext. It is a struct, not a []byte, so plaintext
+// cannot become a Sealed by accidental type conversion.
 type Sealed struct{ b []byte }
 
 func (s Sealed) IsZero() bool
+func (s Sealed) Ciphertext() []byte          // a copy of the bytes
 
-// Bind builds a context from parts without ambiguity: each part is
+// FromCiphertext wraps bytes produced by an Encryptor. It exists for other
+// Encryptor implementations and for moving values between systems.
+func FromCiphertext(b []byte) Sealed
+
+// Bind builds a binding from parts without ambiguity: each part is
 // preceded by its length as a 4-byte big-endian integer, so ("ab", "c")
 // and ("a", "bc") differ.
 func Bind(parts ...string) []byte
@@ -57,10 +64,10 @@ func Bind(parts ...string) []byte
 type Keyring struct{ /* unexported */ }
 
 func NewKeyring(current Key, retired ...Key) (*Keyring, error)
-func (k *Keyring) Seal(plaintext, context []byte) (Sealed, error)
-func (k *Keyring) Open(s Sealed, context []byte) ([]byte, error)
+func (k *Keyring) Seal(plaintext, binding []byte) (Sealed, error)
+func (k *Keyring) Open(s Sealed, binding []byte) ([]byte, error)
 func (k *Keyring) NeedsReseal(s Sealed) bool
-func (k *Keyring) Reseal(s Sealed, context []byte) (Sealed, bool, error)
+func (k *Keyring) Reseal(s Sealed, binding []byte) (Sealed, bool, error)
 
 // Key is one key bound to one algorithm. It never prints its material.
 type Key struct{ /* unexported */ }
@@ -78,6 +85,7 @@ const (
 )
 
 // KeySource is where key material comes from. The first key is current.
+// Other implementations must pass crypttest.
 type KeySource interface {
     Keys(ctx context.Context) ([]Key, error)
 }
@@ -91,11 +99,33 @@ var (
 )
 ```
 
-`Reseal` opens a value and seals it again under the current key, and reports
-whether it changed anything. A value already under the current key is
-returned unchanged.
+### What `Sealed` does and does not protect
 
-Usage in a store:
+Being a struct stops plaintext from becoming a `Sealed` by accident, through a
+type conversion such as `Sealed(b)`. It does not stop deliberate misuse:
+`FromCiphertext` and `Scan` both accept any bytes, because other `Encryptor`
+implementations and the database must be able to supply them. Opening such a
+value fails, so the result of misuse is an error, never a silently wrong
+plaintext.
+
+### `Reseal` and `NeedsReseal`
+
+- **`Reseal` is authoritative.** It always opens the value first, which
+  authenticates it against the binding, even when the header names the current
+  key. A value that fails to open returns the error from `Open`. A value that
+  opens under the current key is returned unchanged with `false`; a value that
+  opens under a retired key is sealed again under the current key and returned
+  with `true`.
+- **`NeedsReseal` is a hint.** It reads the header only and authenticates
+  nothing. It returns `true` only when the header is well formed and names a
+  retired key in this keyring. It returns `false` for the zero value, for a
+  malformed header, for a key the keyring does not hold, and for the current
+  key. It is for counting what remains during a rotation, never for deciding
+  that a value is valid.
+
+### Usage
+
+In a store:
 
 ```go
 type messageModel struct {
@@ -131,9 +161,10 @@ offset  size       field
 
 Overhead is 38 bytes with AES-256-GCM and 50 with XChaCha20-Poly1305.
 
-- **Authenticated data** is the 10-byte header followed by the context. The
+- **Authenticated data** is the 10-byte header followed by the binding. The
   header has a fixed length, so the concatenation is unambiguous. Changing any
-  header byte, any ciphertext byte, or the context makes `Open` fail.
+  header byte, any ciphertext byte, or the binding makes `Open` fail. A `nil`
+  binding and an empty binding are the same binding.
 - **Key ID** is HMAC-SHA256 keyed with the key over the fixed label
   `gorfast/crypt key id v1`, truncated to 8 bytes. It identifies a key without
   revealing anything usable about it.
@@ -167,14 +198,14 @@ section 8.
    twice.
 4. **Fail closed.** `Open` returns `ErrUnknownKey` when the header names a key
    the keyring does not hold, and `ErrCannotOpen` for every other failure:
-   tampering, wrong context, truncation, unknown version or algorithm, or an
-   algorithm mismatch. `ErrUnknownKey` reveals nothing, since the key ID is
-   readable in the header, and it identifies the most common operational
-   mistake: removing a retired key too early.
+   tampering, wrong binding, truncation, unknown version or algorithm, an
+   algorithm mismatch, or the zero value. `ErrUnknownKey` reveals nothing,
+   since the key ID is readable in the header, and it identifies the most
+   common operational mistake: removing a retired key too early.
 5. **Keys are random, never derived from passwords.** A key is exactly 32
    random bytes. There is no per-value key derivation.
 
-## 6. Keys
+## 6. Keys, bindings and rotation
 
 ### Configuration
 
@@ -205,6 +236,33 @@ printf 'xchacha20poly1305:%s\n' "$(openssl rand -base64 32)"            # by han
 
 When `cmd/gorfast` exists, `newkey` becomes a subcommand.
 
+### The AES-256-GCM limit is an operational requirement
+
+With random 96-bit nonces, Go documents a maximum of 2^32 encryptions per
+AES-GCM key ([`cipher.NewGCMWithRandomNonce`](https://pkg.go.dev/crypto/cipher#NewGCMWithRandomNonce)).
+The budget belongs to the key, so it is shared by every instance and process
+that seals with it, across the key's whole lifetime. An application that
+chooses AES-256-GCM must rotate the key well before its total number of
+`Seal` calls approaches that limit. `crypt` does not count seals, because it
+cannot see other instances. This is the main reason XChaCha20-Poly1305 is the
+default: its 192-bit nonces make the limit irrelevant in practice.
+
+### What a binding must contain
+
+A binding names the slot a value belongs to. The application chooses it, so
+these rules belong to the application:
+
+- **Use stable identifiers.** Bind to a primary key, never to a value that can
+  change, such as an email address.
+- **Include the tenant** where row IDs are only unique within a tenant.
+- **Changing a binding is a migration.** Renaming a table or column component
+  of a binding means opening each value with the old binding and sealing it
+  with the new one.
+- **Binding does not prevent replay at the same location.** Writing an older
+  ciphertext for the same slot back into it still opens. An application that
+  must detect that needs a version counter in the binding or elsewhere; `crypt`
+  does not provide one.
+
 ### Rotation
 
 Two phases, so that instances running different configurations never seal
@@ -214,12 +272,37 @@ with a key the others cannot open:
    to every instance.
 2. Move it **first**, which makes it current. Deploy again. New values use it;
    existing values still open under their old key.
-3. Reseal existing values. The application iterates its own rows and calls
-   `Reseal`; `NeedsReseal` lets it count what remains. Gorfast cannot write
-   this loop because it does not know the application's tables. A background
-   version fits naturally once `jobs` exists.
-4. Once no value uses the old key, remove it. If one still did, opening it
-   returns `ErrUnknownKey`.
+3. Reseal existing values, as described below.
+4. Remove the old key from the configuration, and archive it, as described
+   below.
+
+### Resealing existing values
+
+Gorfast cannot write the resealing loop, because it does not know the
+application's tables. The application's loop must follow these rules:
+
+- **Start only after phase 2 has reached every instance.** Until then, some
+  instance may still seal new values with the old key.
+- **Write conditionally.** Read the row, `Reseal` the value, then update only
+  if the column still holds the ciphertext that was read (or the row's version
+  is unchanged). Zero rows affected means a concurrent edit changed the row;
+  re-read it, which normally finds it already under the new key, and move on.
+  An unconditional write can overwrite an edit made between the read and the
+  write.
+- **Finish by counting.** The migration is complete when no row's value makes
+  `NeedsReseal` return `true`, checked after phase 2 reached every instance.
+
+A ready-made background version fits naturally once `jobs` exists.
+
+### Retiring a key
+
+Removing a key from the configuration does not make data encrypted under it
+disposable. **Backups taken before resealing still contain values sealed with
+the old key**, and restoring one needs that key. Archive every retired key in
+secure storage outside the application configuration, for at least as long as
+any backup that may contain its values is kept. A restored backup that
+returns `ErrUnknownKey` needs a key from that archive added back as a retired
+key.
 
 ### Printing
 
@@ -236,12 +319,13 @@ key; nothing else in Gorfast calls it.
 
 ```
 crypt/
-  crypt.go       Encryptor, Sealed, Bind, ErrUnknownKey, ErrCannotOpen
+  crypt.go       Encryptor, Sealed, FromCiphertext, Bind, ErrUnknownKey, ErrCannotOpen
   key.go         Key, Algorithm, ParseKey, GenerateKey, key ID, printing
   keyring.go     Keyring: Seal, Open, NeedsReseal, Reseal
   aead.go        the two algorithms behind one internal table
   source.go      KeySource, StaticKeys, Load
   sql.go         Sealed as driver.Valuer and sql.Scanner
+  crypttest/     conformance suites for Encryptor and KeySource
   cmd/newkey/    the key generator
   testdata/vectors.json
 ```
@@ -251,24 +335,56 @@ graph indirectly.
 
 ## 8. Testing
 
+Two layers, per doctrine rule 3: portable conformance suites that any
+implementation of the interfaces must pass, and tests specific to `Keyring`
+and its format.
+
+### Conformance suites (`crypt/crypttest`)
+
+Public API, the way Sulis ships `storetest`:
+
+- **`RunEncryptor(t, factory func() crypt.Encryptor)`**: a value round-trips;
+  sealing the same plaintext twice gives different ciphertexts; an empty
+  plaintext round-trips and seals to a non-zero value; opening with a
+  different binding fails; flipping any byte of a sealed value makes it fail;
+  every truncation fails; the zero value and arbitrary `FromCiphertext` bytes
+  fail; every failure satisfies `errors.Is` with `ErrCannotOpen` or
+  `ErrUnknownKey`.
+- **`RunKeySource(t, factory func() crypt.KeySource)`**: `Keys` returns at
+  least one key or an error; repeated calls return the same key IDs in the same
+  order; an already-cancelled context makes it return an error rather than
+  block.
+
+`Keyring` and `StaticKeys` run these suites. A later KMS key source runs
+`RunKeySource`.
+
+### `Keyring`-specific tests
+
 - **Frozen format.** `testdata/vectors.json` holds sealed values produced at
   implementation time for both algorithms, with their keys, plaintexts and
-  contexts. A test asserts they keep opening. A change that could no longer
+  bindings. A test asserts they keep opening. A change that could no longer
   read version 1 fails CI. Tests produce stable vectors by injecting a fixed
   nonce source through an unexported hook; production code always uses
   `crypto/rand`.
-- **Round trips** for both algorithms with empty, small and large plaintexts.
-- **Tampering.** Every byte of a real sealed value is flipped in turn and each
-  result must fail to open. Also every truncation length, the wrong context,
-  swapped `Bind` parts, and a header that names the other algorithm for its
-  key.
+- **Header handling.** A header naming the other algorithm for its key, an
+  unknown version, and an unknown algorithm all return `ErrCannotOpen`; an
+  unknown key ID returns `ErrUnknownKey`.
 - **Rotation end to end.** Seal under key A; rotate to B; A's value still
-  opens; `NeedsReseal` is true; `Reseal`; it is false; remove A and an
-  unresealed value returns `ErrUnknownKey`.
+  opens; `NeedsReseal` is true; `Reseal` returns a new value and `true`; for
+  that value `NeedsReseal` is false and `Reseal` returns it unchanged with
+  `false`; remove A and an unresealed value returns `ErrUnknownKey`.
+- **`Reseal` authenticates.** A tampered value under the current key, and a
+  valid value under the current key opened with the wrong binding, both
+  return an error from `Reseal`, never the value unchanged.
+- **`NeedsReseal` cases.** Zero value, malformed header, unknown key and
+  current key all return `false`.
 - **Startup refusals.** Every case `Load` refuses, from section 6.
 - **No key leaks.** `%v`, `%+v`, `%#v` and `%s` on a `Key` never contain the
   key material.
-- **Fuzzing.** `Open` on arbitrary input never panics and never succeeds.
+- **Fuzzing.** `Open` and `NeedsReseal` never panic on any input. The fuzz
+  test asserts only that; whether valid values open and specified mutations
+  are rejected is covered by the deterministic tests above, because a fuzzer
+  seeded with valid ciphertexts would correctly see some of them open.
 - **A real database.** A `Sealed` column round-trips through real Postgres and
   SQLite, including `NULL` for the zero value, per doctrine rule 8. The test
   uses `internal/testdb`, which keeps Bun out of the package's non-test
@@ -279,11 +395,14 @@ graph indirectly.
 - **HMAC blind indexes** for looking up encrypted values. HMAC is in the
   standard library, so no new dependency is needed when the time comes.
 - **A KMS key source**, which would unwrap KMS-wrapped data keys once at
-  startup. Planned as its own piece of work; it implements `KeySource` and
-  does not change the format.
+  startup. Planned as its own piece of work; it implements `KeySource`, passes
+  `RunKeySource`, and does not change the format.
 - **Secrets-manager support** for configuration, such as Vault or AWS Secrets
   Manager. It applies to every secret, not only keys, so it belongs in
   `core/config`. Planned separately.
+- **Detecting replay** of an older ciphertext at the same location; see
+  section 6.
+- **Counting AES-256-GCM seals** across instances; see section 6.
 - **Streaming encryption** for large files.
 - **Migrating `lastmessage`** onto `crypt`. Worth doing, separately; the note
   in that project's `AGENTS.md` already points in this direction.
