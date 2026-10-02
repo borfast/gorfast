@@ -94,7 +94,7 @@ and not a framework.
 ```
 gorfast/              github.com/borfast/gorfast
   core/               config (koanf), logging (slog), lifecycle, graceful shutdown
-  crypt/              encryptors, self-describing envelope, encrypted column types
+  crypt/              encryption at rest: keyring, versioned envelope, Sealed column type
   data/               Bun integration: connection, transaction-per-request, fixtures, seeding
   auth/bunstore/      Sulis store interfaces implemented over Bun
   http/               router, middleware stack, request binding and validation, error mapping
@@ -136,7 +136,7 @@ pipeline.
 | Presentation | `view` and `api` as peer packages over the same services | Keeps the core presentation-agnostic. No content negotiation. |
 | Job backends | Small interface, declared capabilities, several backends | See section 7. |
 | Module layout | One module, many packages | Simplest to develop and version while APIs are unstable. |
-| First slice | `auth/bunstore` and `crypt` | See section 6. |
+| First slice | `auth/bunstore`; `crypt` split into its own plan | See section 6. |
 
 ## 5. `core/config`
 
@@ -169,7 +169,7 @@ transform function, the layered `Load` helper parameterised by prefix and
 defaults, and the validation error type. The application still declares its own
 `Config` struct, because that struct is the application's, not the library's.
 
-## 6. Slice 1: `crypt` and `auth/bunstore`
+## 6. Slice 1: `auth/bunstore`, with `crypt` split out
 
 The first thing built. Chosen because it is small, sharply specified, has an
 acceptance test that already exists, and makes Sulis immediately more useful
@@ -177,38 +177,18 @@ whether or not the rest of Gorfast gets built.
 
 ### 6.1 `crypt`
 
-Generalises `totp.AESEncryptor` from Sulis
-(`/home/borfast/projects/sulis/totp/encrypt.go`), which is the best existing
-design of this in the author's projects:
+Superseded by its own spec, `2026-10-02-crypt-design.md`, and built as a
+separate plan after `auth/bunstore`. In short: our own small, versioned
+envelope over AES-256-GCM and XChaCha20-Poly1305, chosen per key; a keyring
+with two-phase rotation; a required context argument that binds each value to
+where it is stored; and a `Sealed` type that carries only ciphertext, sealed
+explicitly in a store's model conversion rather than by a column type that
+would need a global key.
 
-- AES-256-GCM with a random nonce per call, so encrypting the same plaintext
-  twice gives unrelated ciphertexts.
-- A short fingerprint of the encrypting key prefixed onto every ciphertext, and
-  a map of fingerprint to key. Decryption selects the key from the prefix. This
-  gives key rotation without re-encrypting stored data and without any external
-  key bookkeeping.
-- Fails closed. A wrong key, truncated ciphertext or any other anomaly returns
-  an error, never plausible-looking wrong plaintext.
-
-It borrows one idea from `lastmessage/internal/repositories/encryption`: a
-self-describing envelope that stores the algorithm alongside the ciphertext, so
-the algorithm can change later. It does **not** borrow that package's key
-derivation, which runs Argon2id per record on every read. That is slow and makes
-encrypted columns unqueryable.
-
-Public surface:
-
-- `Encryptor` interface: `Encrypt([]byte) ([]byte, error)`,
-  `Decrypt([]byte) ([]byte, error)`. Byte slices, not strings, so binary values
-  can be encrypted.
-- `AESEncryptor`, constructed with a current key and any number of retired keys.
-- `EncryptedString` and `EncryptedBytes` column types implementing
-  `driver.Valuer` and `sql.Scanner`, so an encrypted column needs no special
-  handling in a query.
-- An adapter satisfying `totp.Encryptor`, so Sulis TOTP secrets get the same
-  treatment without Sulis changing.
-- Deferred, documented as a known gap: HMAC blind index columns for looking up
-  encrypted values. Not needed until something needs to query one.
+Two parts of the original plan here were dropped. The `EncryptedString` and
+`EncryptedBytes` column types cannot encrypt themselves without package-level
+key state, which doctrine forbids. The `totp.Encryptor` adapter is unnecessary
+because Sulis encrypts TOTP secrets before they reach a store.
 
 ### 6.2 `auth/bunstore`
 
@@ -266,8 +246,8 @@ Design points:
 ### 6.3 Definition of done for slice 1
 
 All seven `storetest.Run*` suites pass against a real Postgres and against
-SQLite, and `crypt` has its own round-trip, rotation and fail-closed tests. This
-is not a judgement call: the acceptance criteria already exist as executable
+SQLite. (`crypt` was originally part of this slice and moved to its own plan;
+see section 6.1.) This is not a judgement call: the acceptance criteria already exist as executable
 code in Sulis.
 
 ## 7. Jobs
@@ -307,7 +287,9 @@ The design that follows from this:
 Each step is justified by what the previous step actually needed, so nothing is
 designed on paper ahead of a real consumer.
 
-1. `auth/bunstore` and `crypt`. Slice 1.
+1. `auth/bunstore`. Slice 1.
+1a. `crypt`, then the second-factor stores in `auth/bunstore`, each its own
+    plan. Neither depends on the other.
 2. `core` and `data`, extracted from what slice 1 turned out to need.
 3. `http`.
 4. `view` and `api`, as peers.
@@ -328,6 +310,8 @@ Recorded so they are choices rather than oversights.
 
 - HMAC blind indexes for querying encrypted columns. Deferred until something
   needs to query one.
+- A KMS key source for `crypt` and secrets-manager support in `core/config`.
+  Planned, each its own piece of work; see the `crypt` spec, section 9.
 - Sulis's `totp` and `passkey` subpackages have no event sink, so security
   events from them cannot be captured yet. This is Sulis's gap, not Gorfast's.
 - Sulis's default rate limiter is per-process, not shared across instances. A
