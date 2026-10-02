@@ -1,0 +1,30 @@
+[
+  {
+    "name": "xchacha20poly1305 text",
+    "key": "xchacha20poly1305:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "plaintext": "676f7266617374206372797074207631",
+    "binding": "000000086d6573736167657300000004626f6479000000023432",
+    "sealed": "01022f059fba08545e9d404142434445464748494a4b4c4d4e4f5051525354555657b3567716b1930d36ec86fecedbbc13a3c1890c1ac2d85001512bb5e9c749cb09"
+  },
+  {
+    "name": "xchacha20poly1305 empty",
+    "key": "xchacha20poly1305:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "plaintext": "",
+    "binding": "",
+    "sealed": "01022f059fba08545e9d404142434445464748494a4b4c4d4e4f50515253545556576267068fb23b4bdd1b58fd0366a04224"
+  },
+  {
+    "name": "aes256gcm text",
+    "key": "aes256gcm:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+    "plaintext": "676f7266617374206372797074207631",
+    "binding": "000000086d6573736167657300000004626f6479000000023432",
+    "sealed": "01011a1aa071600d3322404142434445464748494a4ba53bcfe73105b12b31402958f16a27433d733f9c78c02f114651f571a83fd75a"
+  },
+  {
+    "name": "aes256gcm empty",
+    "key": "aes256gcm:ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+    "plaintext": "",
+    "binding": "",
+    "sealed": "01011a1aa071600d3322404142434445464748494a4badfca515f99ecf3791ec7ade754eb763"
+  }
+]
