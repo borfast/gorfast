@@ -46,6 +46,10 @@ This repository also holds a Go module, `github.com/borfast/gorfast`.
 of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, for
 Postgres and SQLite.
 
+`crypt` encrypts column values at rest with a rotating keyring.
+Generate a key with `go run github.com/borfast/gorfast/crypt/cmd/newkey@latest`.
+See the [crypt spec](docs/superpowers/specs/2026-10-02-crypt-design.md#6-keys-bindings-and-rotation) for rotation.
+
 Run the tests with:
 
 ```bash
