@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"strings"
 	"testing"
 
@@ -71,8 +72,39 @@ func TestScanSources(t *testing.T) {
 	if !bytes.Equal(s.Ciphertext(), []byte{5}) {
 		t.Error("unsupported source changed the previous value")
 	}
-	if err := s.Scan([]byte(nil)); err != nil || !s.IsZero() {
+	if err := s.Scan([]byte(nil)); err != nil || s.IsZero() {
 		t.Errorf("nil slice: %x, %v", s.Ciphertext(), err)
+	}
+}
+
+func TestScanEmptyBytesStayNonNull(t *testing.T) {
+	kr := newKeyring(t, mustKey(t, crypt.XChaCha20Poly1305))
+	for _, tc := range []struct {
+		name string
+		src  []byte
+	}{
+		{"typed nil", nil},
+		{"empty slice", []byte{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := crypt.FromCiphertext([]byte{1, 2, 3})
+			if err := s.Scan(tc.src); err != nil {
+				t.Fatal(err)
+			}
+			if s.IsZero() || s.Ciphertext() == nil || len(s.Ciphertext()) != 0 {
+				t.Fatal("empty bytes must remain non-NULL and replace previous ciphertext")
+			}
+			v, err := s.Value()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b, ok := v.([]byte); !ok || b == nil || len(b) != 0 {
+				t.Fatalf("empty bytes Value = %#v; want non-nil empty []byte", v)
+			}
+			if _, err := kr.Open(s, nil); !errors.Is(err, crypt.ErrCannotOpen) {
+				t.Fatalf("Open empty bytes = %v; want ErrCannotOpen", err)
+			}
+		})
 	}
 }
 

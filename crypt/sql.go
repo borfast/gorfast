@@ -1,7 +1,6 @@
 package crypt
 
 import (
-	"bytes"
 	"database/sql/driver"
 	"fmt"
 )
@@ -21,7 +20,8 @@ func (s *Sealed) Scan(src any) error {
 	case nil:
 		s.b = nil
 	case []byte:
-		s.b = bytes.Clone(src)
+		s.b = make([]byte, len(src))
+		copy(s.b, src)
 	case string:
 		s.b = []byte(src)
 	default:
