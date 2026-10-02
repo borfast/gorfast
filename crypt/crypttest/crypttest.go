@@ -167,16 +167,20 @@ func RunKeySource(t *testing.T, factory func() crypt.KeySource) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		ids := make([]string, len(a))
+		for i := range a {
+			ids[i] = a[i].String()
+		}
 		b, err := src.Keys(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(a) != len(b) {
-			t.Fatalf("Keys returned lengths %d and %d; want equal lengths", len(a), len(b))
+		if len(ids) != len(b) {
+			t.Fatalf("Keys returned lengths %d and %d; want equal lengths", len(ids), len(b))
 		}
-		for i := range a {
-			if a[i].String() != b[i].String() {
-				t.Errorf("key %d changed from %s to %s", i, a[i], b[i])
+		for i := range ids {
+			if ids[i] != b[i].String() {
+				t.Errorf("key %d changed from %s to %s", i, ids[i], b[i])
 			}
 		}
 	})

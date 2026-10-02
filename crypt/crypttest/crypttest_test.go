@@ -78,6 +78,55 @@ func TestRunKeySourceFactoryPerSubtest(t *testing.T) {
 	}
 }
 
+func TestRunKeySourceCatchesReorderedSharedSlice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestReorderingSourceHelper$", "-test.v")
+	cmd.Env = append(os.Environ(), "CRYPTTEST_REORDERING_SOURCE=1")
+	out, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("child error = %v; want test failure with exit 1\n%s", err, out)
+	}
+	failure := "--- FAIL: TestReorderingSourceHelper/StableOrder"
+	if !strings.Contains(string(out), failure) {
+		t.Fatalf("child did not fail StableOrder:\n%s", out)
+	}
+	t.Log(failure)
+}
+
+func TestReorderingSourceHelper(t *testing.T) {
+	if os.Getenv("CRYPTTEST_REORDERING_SOURCE") == "" {
+		t.Skip("run by TestRunKeySourceCatchesReorderedSharedSlice")
+	}
+	a, err := crypt.GenerateKey(crypt.XChaCha20Poly1305)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := crypt.GenerateKey(crypt.AES256GCM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.String() == b.String() {
+		t.Fatal("regression fixture requires distinct key IDs")
+	}
+	crypttest.RunKeySource(t, func() crypt.KeySource {
+		return &reorderingKeySource{keys: []crypt.Key{a, b}}
+	})
+}
+
+type reorderingKeySource struct {
+	keys []crypt.Key
+}
+
+func (s *reorderingKeySource) Keys(ctx context.Context) ([]crypt.Key, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.keys[0], s.keys[1] = s.keys[1], s.keys[0]
+	return s.keys, nil
+}
+
 func keyring(t *testing.T) *crypt.Keyring {
 	t.Helper()
 	key, err := crypt.GenerateKey(crypt.XChaCha20Poly1305)
