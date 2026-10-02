@@ -3,7 +3,7 @@ module github.com/borfast/gorfast
 go 1.27.0
 
 require (
-	github.com/borfast/sulis v0.2.0
+	github.com/borfast/sulis v0.2.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
@@ -15,9 +15,9 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/go-webauthn/webauthn v0.18.1 // indirect
+	github.com/go-webauthn/webauthn v0.18.2 // indirect
 	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
