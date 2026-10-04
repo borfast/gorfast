@@ -1,0 +1,74 @@
+# Doctrine rule 8 requires the Postgres tests to run in CI.
+# Step "Fail if any Postgres subtest skipped" stops a skipped run from passing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: gorfast
+          POSTGRES_PASSWORD: gorfast
+          POSTGRES_DB: gorfast_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GORFAST_TEST_POSTGRES_DSN: postgres://gorfast:gorfast@localhost:5433/gorfast_test?sslmode=disable
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Verify go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        shell: bash
+        run: |
+          go test -race -count=1 -v ./... 2>&1 | tee test.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Fail if any Postgres subtest skipped
+        shell: bash
+        run: |
+          if grep -E -- '--- SKIP: .*/postgres' test.log; then echo "Postgres subtests skipped; the database was not reachable" >&2; exit 1; fi
+
+      - name: Fuzz Open for 30 seconds
+        run: go test ./crypt/ -run '^$' -fuzz FuzzOpen -fuzztime 30s
+
+      - name: Check for known vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
