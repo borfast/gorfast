@@ -174,8 +174,22 @@ func (s *UserStore) explainFailedUpdate(ctx context.Context, id string) error {
 	return sulis.ErrConcurrentUpdate
 }
 
+// DeleteUser removes the user and every session and token that names the
+// user in one transaction, so a deleted account cannot keep signing in.
 func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
-	_, err := s.db.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx)
+	if id == "" {
+		return nil
+	}
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*sessionModel)(nil)).Where("user_id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model((*tokenModel)(nil)).Where("user_id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
+		_, err := tx.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting user: %w", err)
 	}
