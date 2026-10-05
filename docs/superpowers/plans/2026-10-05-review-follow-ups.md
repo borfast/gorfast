@@ -181,4 +181,4 @@ git commit -m "Delete a user's sessions and tokens with the user"
 
 ## Done when
 
-Both commits are on `review-follow-ups`, CI is green on its pull request, and `grep -rn '@latest' README.md docs/superpowers/specs/` prints nothing.
+Both commits are on `review-follow-ups`, CI is green on its pull request, and `grep -rn 'newkey@latest' README.md docs/superpowers/specs/` prints nothing.

@@ -251,6 +251,12 @@ Design points:
     aliases of stored state. Reconstructing rows from a database read gives this
     for free, but the conformance suite checks it.
 
+- **`DeleteUser` cascades in the store.** The schema has no foreign keys,
+  because `storetest` creates sessions for users that never exist and
+  magic-link tokens have an empty `user_id`. So `UserStore.DeleteUser` removes
+  the user's sessions and tokens in the same transaction as the user row, user
+  row first, and an empty id deletes nothing.
+
 - **Migrations ship two ways**: embedded Bun migrations for anyone who wants
   them, and the same statements as plain `.sql` files for anyone who runs goose
   or anything else. The library does not insist on owning migrations.
