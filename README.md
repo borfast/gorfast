@@ -69,8 +69,7 @@ development against a different Sulis checkout, use a personal, untracked
 ## Development
 
 This repo follows the [Superpowers](https://github.com/obra/superpowers)
-workflow. See `CLAUDE.md` (symlinked as `AGENTS.md` for Codex, Copilot CLI and
-Gemini CLI).
+workflow.
 
 Validate changes before committing:
 
