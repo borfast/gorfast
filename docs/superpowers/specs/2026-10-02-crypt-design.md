@@ -255,9 +255,10 @@ printf 'xchacha20poly1305:%s\n' "$(openssl rand -base64 32)"            # by han
 
 Pin the revision. `@latest` runs whatever the module proxy serves at that
 moment, and a key generator is exactly the code that must be the code you
-reviewed. The commit above merged `crypt`; replace it with a later reviewed
-commit, or a release tag once the module has one. The `openssl` form avoids
-the question entirely.
+reviewed. The commit above is `main` as it stood after `crypt` merged, the
+revision the 2026-10-03 security review covered. Replace it with a later
+reviewed commit, or a release tag once the module has one. The `openssl` form
+avoids the question entirely.
 
 When `cmd/gorfast` exists, `newkey` becomes a subcommand.
 
