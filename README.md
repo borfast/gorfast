@@ -47,7 +47,8 @@ of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, for
 Postgres and SQLite.
 
 `crypt` encrypts column values at rest with a rotating keyring.
-Generate a key with `go run github.com/borfast/gorfast/crypt/cmd/newkey@latest`.
+Generate a key with `go run github.com/borfast/gorfast/crypt/cmd/newkey@f9e66db3e375288edb3fa9fb23dd6d55740f1456`,
+pinned to a reviewed commit.
 See the [crypt spec](docs/superpowers/specs/2026-10-02-crypt-design.md#6-keys-bindings-and-rotation) for rotation.
 
 Run the tests with:

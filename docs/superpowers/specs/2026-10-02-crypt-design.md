@@ -235,15 +235,29 @@ holds the string and `main` passes the split specs to `StaticKeys`.
 `Load` refuses, at startup: no keys, a key that does not decode to exactly 32
 bytes, an unknown algorithm name, and two keys with the same ID.
 
+**An environment variable is not a secure store.** Every process running as
+the same user can read it from `/proc/<pid>/environ`, and so can a crash dump,
+`docker inspect`, and any child process the application starts. It holds every
+key, retired ones included, so one leak exposes backups as well as live data.
+The KMS key source planned in section 9 takes the material out of the
+configuration. Until then, treat this variable as the most sensitive value the
+application has, and keep it out of logs, shell history and CI output.
+
 ### Generating a key
 
 Nothing to install, and no Tink or KMS:
 
 ```
-go run github.com/borfast/gorfast/crypt/cmd/newkey@latest              # XChaCha20-Poly1305
-go run github.com/borfast/gorfast/crypt/cmd/newkey@latest -alg aes256gcm
+go run github.com/borfast/gorfast/crypt/cmd/newkey@f9e66db3e375288edb3fa9fb23dd6d55740f1456                  # XChaCha20-Poly1305
+go run github.com/borfast/gorfast/crypt/cmd/newkey@f9e66db3e375288edb3fa9fb23dd6d55740f1456 -alg aes256gcm
 printf 'xchacha20poly1305:%s\n' "$(openssl rand -base64 32)"            # by hand
 ```
+
+Pin the revision. `@latest` runs whatever the module proxy serves at that
+moment, and a key generator is exactly the code that must be the code you
+reviewed. The commit above merged `crypt`; replace it with a later reviewed
+commit, or a release tag once the module has one. The `openssl` form avoids
+the question entirely.
 
 When `cmd/gorfast` exists, `newkey` becomes a subcommand.
 
@@ -257,6 +271,15 @@ chooses AES-256-GCM must rotate the key well before its total number of
 `Seal` calls approaches that limit. `crypt` does not count seals, because it
 cannot see other instances. This is the main reason XChaCha20-Poly1305 is the
 default: its 192-bit nonces make the limit irrelevant in practice.
+
+### Ciphertext length reveals plaintext length
+
+A sealed value is exactly 38 or 50 bytes longer than its plaintext, so anyone
+who can read the column learns the plaintext's length. For free text that is
+usually harmless. For a short field with few possible values, such as a yes or
+no answer or a country code, the length is the value. Pad such plaintexts to a
+fixed length before sealing and strip the padding after opening. `crypt` does
+not pad, because only the application knows which fields need it.
 
 ### What a binding must contain
 
@@ -454,7 +477,10 @@ acceptance criteria: `crypt` does not own tables or run migrations.
 ## 9. Out of scope
 
 - **HMAC blind indexes** for looking up encrypted values. HMAC is in the
-  standard library, so no new dependency is needed when the time comes.
+  standard library, so no new dependency is needed when the time comes. When
+  built, the index key must be a separate key, never an AEAD key: one key, one
+  purpose. Rotating an index key means recomputing every index value, which is
+  a different migration from resealing.
 - **A KMS key source**, which would unwrap KMS-wrapped data keys once at
   startup. Planned as its own piece of work; it implements `KeySource`, passes
   `RunKeySource`, and does not change the format.
@@ -465,5 +491,6 @@ acceptance criteria: `crypt` does not own tables or run migrations.
   section 6.
 - **Counting AES-256-GCM seals** across instances; see section 6.
 - **Streaming encryption** for large files.
+- **Padding** plaintexts to hide their length; see section 6.
 - **Migrating `lastmessage`** onto `crypt`. Worth doing, separately; the note
   in that project's `AGENTS.md` already points in this direction.

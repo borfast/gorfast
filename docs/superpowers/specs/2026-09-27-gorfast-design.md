@@ -352,10 +352,10 @@ Recorded so they are choices rather than oversights.
 - Sulis's `totp` subpackage has no event sink, so its security events cannot
   be captured yet. `passkey` gained one in Sulis v0.2.0. This is Sulis's gap,
   not Gorfast's.
-- **Gorfast has no CI.** Every test so far, including PR #1's suite on both
-  databases, has only run on developer machines. A workflow with a required
-  Postgres job, per doctrine rule 8, is the next task after this document's
-  current revision.
+- **CI exists since 2026-10-04** (`.github/workflows/ci.yml`): vet, race tests
+  on SQLite and Postgres 18, a 30 second fuzz run and `govulncheck`, on every
+  pull request and push to `main`. A skipped Postgres subtest fails the job,
+  and `main` requires the `test` check.
 - Sulis's default rate limiter is per-process, not shared across instances. A
   multi-instance deployment needs a shared limiter, which Gorfast should provide
   once `data` exists.
