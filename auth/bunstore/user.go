@@ -180,14 +180,16 @@ func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
 	if id == "" {
 		return nil
 	}
+	// The user row goes first, so a login racing this delete fails on the
+	// missing user instead of leaving a fresh orphan session behind.
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
 		if _, err := tx.NewDelete().Model((*sessionModel)(nil)).Where("user_id = ?", id).Exec(ctx); err != nil {
 			return err
 		}
-		if _, err := tx.NewDelete().Model((*tokenModel)(nil)).Where("user_id = ?", id).Exec(ctx); err != nil {
-			return err
-		}
-		_, err := tx.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx)
+		_, err := tx.NewDelete().Model((*tokenModel)(nil)).Where("user_id = ?", id).Exec(ctx)
 		return err
 	})
 	if err != nil {

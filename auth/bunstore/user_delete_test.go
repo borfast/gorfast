@@ -1,7 +1,9 @@
 package bunstore_test
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,7 +129,7 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = tx.Rollback() }()
-		txUsers, txSessions := bunstore.NewUserStore(tx), bunstore.NewSessionStore(tx)
+		txUsers, txSessions, txTokens := bunstore.NewUserStore(tx), bunstore.NewSessionStore(tx), bunstore.NewTokenStore(tx)
 
 		if err := txUsers.DeleteUser(ctx, "alice"); err != nil {
 			t.Fatalf("DeleteUser in tx: %v", err)
@@ -136,6 +138,9 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 			t.Fatalf("alice through tx: %v, want ErrUserNotFound", err)
 		}
 		requireSessionCount(t, txSessions, "alice", 0)
+		if _, err := txTokens.ConsumeToken(ctx, aliceResetHash, resetPurpose); !errors.Is(err, sulis.ErrTokenNotFound) {
+			t.Fatalf("alice's token through tx: %v, want ErrTokenNotFound", err)
+		}
 
 		if err := tx.Rollback(); err != nil {
 			t.Fatal(err)
@@ -144,5 +149,46 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 			t.Fatalf("alice after rollback: %v", err)
 		}
 		requireSessionCount(t, bunstore.NewSessionStore(db), "alice", 2)
+		if _, err := bunstore.NewTokenStore(db).ConsumeToken(ctx, aliceResetHash, resetPurpose); err != nil {
+			t.Fatalf("alice's token after rollback: %v", err)
+		}
+	})
+}
+
+// queryRecorder keeps every SQL statement a bun.DB runs, in order.
+type queryRecorder struct{ queries []string }
+
+func (r *queryRecorder) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.Context {
+	return ctx
+}
+
+func (r *queryRecorder) AfterQuery(_ context.Context, e *bun.QueryEvent) {
+	r.queries = append(r.queries, e.Query)
+}
+
+// The user row goes first so a login racing the delete fails on the missing
+// user instead of leaving a fresh orphan session behind.
+func TestDeleteUserRemovesTheUserRowFirst(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		seedDeleteUser(t, db)
+		rec := &queryRecorder{}
+		db.AddQueryHook(rec)
+		if err := bunstore.NewUserStore(db).DeleteUser(t.Context(), "alice"); err != nil {
+			t.Fatalf("DeleteUser: %v", err)
+		}
+		first := map[string]int{}
+		for i, q := range rec.queries {
+			for _, table := range []string{"users", "sessions", "tokens"} {
+				if _, seen := first[table]; !seen && strings.HasPrefix(q, "DELETE FROM") && strings.Contains(q, "\""+table+"\"") {
+					first[table] = i
+				}
+			}
+		}
+		if len(first) != 3 {
+			t.Fatalf("saw deletes for %v; want users, sessions and tokens in %q", first, rec.queries)
+		}
+		if first["users"] > first["sessions"] || first["users"] > first["tokens"] {
+			t.Fatalf("users deleted at statement %d, after sessions %d or tokens %d", first["users"], first["sessions"], first["tokens"])
+		}
 	})
 }
