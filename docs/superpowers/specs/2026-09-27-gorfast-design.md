@@ -369,30 +369,84 @@ decide the transaction lifecycle. These rules replace the earlier idea of a
 transaction-per-request default.
 
 - **The service operation is the transaction boundary, not the HTTP request.**
-  A service method decides whether it needs a transaction, opens one with
-  `RunInTx` on the `bun.IDB` it was given, and passes the `bun.Tx` to the
-  stores it uses. Stores never commit on their own account. The one exception
-  is an internal savepoint that keeps a caller's transaction usable after an
-  expected failure, as `UserStore.UpdateUser` does.
+  The service decides which work must be atomic, but its contract does not
+  accept `bun.IDB` or `bun.Tx`. It uses an application-owned transaction
+  runner that supplies repository interfaces bound to one transaction. A
+  Bun-specific adapter implements the runner using `RunInTx` and constructs
+  the stores with that `bun.Tx`; `main` wires the adapter into the service.
+  The example application determines the smallest useful runner contract
+  before any reusable API is extracted. This preserves doctrine rule 2.
+- **Every transaction has an explicit outermost owner.** An operation either
+  owns the database transaction or participates in one owned by its caller;
+  the runner's contract must distinguish these cases. Only the outermost
+  owner can declare a successful database commit or authorize post-commit
+  effects. Bun's `RunInTx` on a `bun.Tx` creates a savepoint, and committing
+  that nested scope only releases the savepoint. An outer rollback still
+  undoes those writes. Stores never commit the caller's transaction. They
+  may use internal savepoints to recover from expected failures, as
+  `UserStore.UpdateUser` does; releasing one is not a durable commit.
 - **Each operation decides which writes survive a failure.** An error from an
   operation does not mean "undo everything". Sulis's `Login` is the concrete
   case: it records a failed attempt through `UpdateUser`, then returns
   `ErrInvalidCredentials`. Run inside a transaction that rolls back because
   `Login` returned an error, that write disappears and account lockout never
-  triggers. Security bookkeeping of this kind must be committed whatever the
-  outcome: either it runs outside the operation's transaction, or the
-  operation commits and then returns its error.
+  triggers. Security bookkeeping of this kind must survive the expected
+  authentication failure. An operation that owns the outermost transaction
+  may commit the bookkeeping and then return its business error. If it can
+  participate in a caller's transaction, bookkeeping that must survive the
+  caller's rollback needs an independently committed write outside that
+  transaction. Otherwise, explicitly disallow an enclosing transaction for
+  that operation. Releasing a savepoint does not satisfy this requirement.
+- **Separate the business outcome from transaction failure.** `RunInTx`
+  rolls back when its callback returns an error. To commit bookkeeping after
+  an expected business failure, capture that outcome separately and return
+  `nil` from the callback only after the required writes have succeeded.
+  Return the business error after the outermost commit succeeds. A write or
+  commit error takes precedence and must be propagated; unexpected failures
+  must not be turned into `nil` merely to force a commit. A participating
+  operation cannot promise this outcome until its outermost owner commits.
 - **Commit before responding.** A handler never writes a success response
-  before the commit has succeeded, and a failed commit is reported as a
-  failure, not swallowed after the client has been told it worked.
+  before the outermost commit has succeeded, and a failed commit is reported
+  as a failure, not swallowed after the client has been told it worked. An
+  expected business failure whose bookkeeping must commit also waits for
+  that commit before returning its ordinary business outcome.
 - **External effects happen after commit.** Email, calls to other services,
   and anything else that cannot be rolled back must not happen inside a
   transaction that might still roll back. The intended mechanism is a
   transactional outbox: enqueue a Postgres job in the same transaction
-  (section 7) and perform the effect from the job, after commit. Until `jobs`
-  exists, perform the effect after commit and accept that a crash between the
-  two loses it.
-- **A panic rolls back** (doctrine rule 5).
+  (section 7) and perform the effect from the job, after the outermost commit.
+  Until `jobs` exists, the outermost owner performs the effect after commit
+  and accepts that a crash between the two loses it. A participating service
+  must leave the effect to that owner, never perform it after releasing a
+  savepoint. Failure of a post-commit effect cannot undo committed writes.
+- **A panic rolls back active, uncommitted work** (doctrine rule 5). It does
+  not undo an independently committed bookkeeping write or a transaction
+  that committed before the panic.
 - **HTTP middleware comes last.** A transaction convenience in `http` is only
   added once these rules have been exercised in the example application, and
   rolling back on any error is never its default.
+
+### Required validation in the implementation plan
+
+The plans for the transaction runner and example application must exercise
+these rules against real Postgres and SQLite:
+
+- An expected login failure persists its failed-attempt bookkeeping before
+  returning `ErrInvalidCredentials` when the operation owns the transaction.
+- An inner savepoint completes, then the outer transaction rolls back: the
+  inner writes disappear and no post-commit effect runs. An operation that
+  promises independently durable bookkeeping either preserves that write
+  through the outer rollback or rejects the enclosing transaction before
+  doing work, according to its declared contract.
+- A required bookkeeping write or the outermost commit fails: the storage
+  failure is propagated instead of the ordinary business outcome, and no
+  success response or external effect is emitted.
+- An unexpected error or panic before commit rolls back uncommitted writes.
+  Successfully committed bookkeeping is not promised to roll back afterward.
+- A successful outermost commit precedes the response and any direct external
+  effect. Once Postgres jobs exists, outbox tests also show that enqueue rolls
+  back with the business write and jobs become available only after commit.
+
+The runner contract and its conformance tests must document transaction
+ownership and outcome handling. Bun mechanics and savepoint behavior belong
+in the adapter's integration tests. No Bun types enter service contracts.

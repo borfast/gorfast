@@ -50,7 +50,7 @@ type Sealed struct{ b []byte }
 func (s Sealed) IsZero() bool
 func (s Sealed) Ciphertext() []byte          // a copy of the bytes
 
-// FromCiphertext wraps bytes produced by an Encryptor. It exists for other
+// FromCiphertext copies bytes produced by an Encryptor. It exists for other
 // Encryptor implementations and for moving values between systems.
 func FromCiphertext(b []byte) Sealed
 
@@ -104,9 +104,19 @@ var (
 Being a struct stops plaintext from becoming a `Sealed` by accident, through a
 type conversion such as `Sealed(b)`. It does not stop deliberate misuse:
 `FromCiphertext` and `Scan` both accept any bytes, because other `Encryptor`
-implementations and the database must be able to supply them. Opening such a
-value fails, so the result of misuse is an error, never a silently wrong
-plaintext.
+implementations and the database must be able to supply them. Wrapping bytes
+does not authenticate them; `Open` establishes validity against a key and
+binding. Invalid ciphertext fails to open.
+
+### Byte ownership
+
+`Sealed` owns its bytes. `FromCiphertext` and `Scan` copy incoming byte slices;
+`Ciphertext` and a non-NULL `Value` return copies. None of these methods
+exposes the internal slice. Mutating an input buffer or a returned buffer
+cannot change an existing `Sealed`, including one returned unchanged by
+`Reseal`. `Scan` must copy driver-owned bytes before returning, because the
+driver may reuse them on its next call (the
+[`sql.Scanner` contract](https://pkg.go.dev/database/sql#Scanner)).
 
 ### `Reseal` and `NeedsReseal`
 
@@ -120,8 +130,9 @@ plaintext.
   nothing. It returns `true` only when the header is well formed and names a
   retired key in this keyring. It returns `false` for the zero value, for a
   malformed header, for a key the keyring does not hold, and for the current
-  key. It is for counting what remains during a rotation, never for deciding
-  that a value is valid.
+  key. It is for reporting rotation progress, never for deciding that a value
+  is valid or that migration is complete. A `false` result does not replace
+  `Open` or `Reseal`; section 6 defines the completion check.
 
 ### Usage
 
@@ -259,9 +270,11 @@ these rules belong to the application:
   of a binding means opening each value with the old binding and sealing it
   with the new one.
 - **Binding does not prevent replay at the same location.** Writing an older
-  ciphertext for the same slot back into it still opens. An application that
-  must detect that needs a version counter in the binding or elsewhere; `crypt`
-  does not provide one.
+  ciphertext for the same slot back into it still opens. Detecting this needs
+  trusted freshness state, such as an expected version used in the binding
+  that cannot be rolled back alongside the ciphertext. A version counter in
+  the same database row does not protect against an attacker who can restore
+  both fields together. `crypt` does not provide trusted freshness state.
 
 ### Rotation
 
@@ -283,14 +296,27 @@ application's tables. The application's loop must follow these rules:
 
 - **Start only after phase 2 has reached every instance.** Until then, some
   instance may still seal new values with the old key.
+- **Authenticate every non-NULL value.** Call `Reseal` with the row's binding,
+  even when `NeedsReseal` returns `false`. A successful unchanged result proves
+  the value opens under the current key. Skip SQL `NULL` only where the column
+  is intentionally nullable. Record unknown keys, malformed values, wrong
+  bindings and other failures as unresolved errors; do not silently skip them
+  or replace them with `NULL`.
 - **Write conditionally.** Read the row, `Reseal` the value, then update only
   if the column still holds the ciphertext that was read (or the row's version
-  is unchanged). Zero rows affected means a concurrent edit changed the row;
-  re-read it, which normally finds it already under the new key, and move on.
-  An unconditional write can overwrite an edit made between the read and the
-  write.
-- **Finish by counting.** The migration is complete when no row's value makes
-  `NeedsReseal` return `true`, checked after phase 2 reached every instance.
+  is unchanged). Zero rows affected means the row changed or was deleted;
+  re-read it. If it still exists, authenticate the new value and retry or
+  requeue it if it still needs resealing. An unrelated column edit may have
+  changed the row version while leaving the encrypted value under the old
+  key. Do not count a conflict as a completed migration. An unconditional
+  write can overwrite an edit made between the read and the write.
+- **Finish with validation and counting.** After phase 2, completion requires
+  a full validation pass over the migration's columns, zero remaining values
+  under retired keys, and zero unresolved validation errors, write failures or
+  pending retries. `NeedsReseal` can report a progress count, but zero alone is
+  insufficient: unknown keys and malformed headers also return `false`.
+  Validate non-NULL values through `Open` or `Reseal` with their bindings, and
+  retain the retired keys until these completion conditions hold.
 
 A ready-made background version fits naturally once `jobs` exists.
 
@@ -347,9 +373,11 @@ Public API, the way Sulis ships `storetest`:
   sealing the same plaintext twice gives different ciphertexts; an empty
   plaintext round-trips and seals to a non-zero value; opening with a
   different binding fails; flipping any byte of a sealed value makes it fail;
-  every truncation fails; the zero value and arbitrary `FromCiphertext` bytes
-  fail; every failure satisfies `errors.Is` with `ErrCannotOpen` or
-  `ErrUnknownKey`.
+  every truncation fails; the zero value and specified invalid byte sequences
+  supplied through `FromCiphertext` fail to open; each of these opening
+  failures satisfies `errors.Is` with `ErrCannotOpen` or `ErrUnknownKey`.
+  A valid value exported with `Ciphertext()` and reconstructed with
+  `FromCiphertext` still opens to the same plaintext with the same binding.
 - **`RunKeySource(t, factory func() crypt.KeySource)`**: `Keys` returns at
   least one key or an error; repeated calls return the same key IDs in the same
   order; an already-cancelled context makes it return an error rather than
@@ -357,6 +385,16 @@ Public API, the way Sulis ships `storetest`:
 
 `Keyring` and `StaticKeys` run these suites. A later KMS key source runs
 `RunKeySource`.
+
+### `Sealed` ownership tests
+
+- Mutating the source slice after `FromCiphertext` or `Scan` cannot change
+  the stored ciphertext. Reusing a simulated driver buffer after `Scan`
+  cannot corrupt a previously scanned value.
+- Mutating bytes returned by `Ciphertext()` or `Value()` cannot change the
+  original `Sealed` or a copy returned unchanged by `Reseal`.
+- These checks also verify that a valid value still opens after the external
+  buffers have been mutated.
 
 ### `Keyring`-specific tests
 
@@ -377,7 +415,10 @@ Public API, the way Sulis ships `storetest`:
   valid value under the current key opened with the wrong binding, both
   return an error from `Reseal`, never the value unchanged.
 - **`NeedsReseal` cases.** Zero value, malformed header, unknown key and
-  current key all return `false`.
+  current key all return `false`. A value with an intact retired-key header
+  and a damaged authentication tag still returns `true`, while `Reseal`
+  rejects it. A damaged value naming the current key returns `false`, while
+  `Reseal` rejects it. These cases prove that the hint is not validation.
 - **Startup refusals.** Every case `Load` refuses, from section 6.
 - **No key leaks.** `%v`, `%+v`, `%#v` and `%s` on a `Key` never contain the
   key material.
@@ -389,6 +430,26 @@ Public API, the way Sulis ships `storetest`:
   SQLite, including `NULL` for the zero value, per doctrine rule 8. The test
   uses `internal/testdb`, which keeps Bun out of the package's non-test
   imports.
+
+### Application resealing integration tests
+
+When the example application adds its resealing loop, its plan must include
+real Postgres and SQLite tests for section 6's persistence protocol:
+
+- A concurrent edit of the encrypted field is preserved when the conditional
+  migration write loses the race; the replacement value is authenticated.
+- A concurrent edit of another field changes the row version but leaves the
+  old ciphertext in place; the loop retries or requeues and eventually
+  reseals it instead of silently skipping it.
+- An unknown-key value and a malformed value each prevent completion even
+  when the `NeedsReseal` count is zero. Pending retries and failed writes also
+  prevent completion.
+- A valid current-key value is authenticated without being rewritten, and an
+  intentional SQL `NULL` is skipped without treating invalid ciphertext as
+  an absent value.
+
+These belong to the application's plan, not the standalone `crypt` package's
+acceptance criteria: `crypt` does not own tables or run migrations.
 
 ## 9. Out of scope
 
