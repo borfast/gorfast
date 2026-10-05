@@ -16,3 +16,8 @@ evals/*/results/
 
 # Claude Code local state, including worktrees holding unmerged branches
 .claude/
+
+# Agent instructions and local code indexes stay out of the repository
+CLAUDE.md
+AGENTS.md
+.codegraph/
