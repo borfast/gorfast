@@ -24,7 +24,7 @@ import (
 const PostgresDSNEnv = "GORFAST_TEST_POSTGRES_DSN"
 
 // tables is every table Reset empties, children before parents.
-var tables = []string{"sessions", "tokens", "users"}
+var tables = []string{"sessions", "tokens", "users", "totp_credentials"}
 
 // Each runs fn once per available dialect, as a subtest named for the dialect.
 func Each(t *testing.T, fn func(t *testing.T, db *bun.DB)) {
