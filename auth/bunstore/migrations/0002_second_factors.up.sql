@@ -29,3 +29,11 @@ CREATE TABLE IF NOT EXISTS passkey_credentials (
 
 CREATE UNIQUE INDEX IF NOT EXISTS passkey_credentials_credential_id_key ON passkey_credentials (credential_id);
 CREATE INDEX IF NOT EXISTS passkey_credentials_user_id_idx ON passkey_credentials (user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+    challenge_key TEXT PRIMARY KEY,
+    session_data  BYTEA NOT NULL,
+    expires_at    TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS passkey_challenges_expires_at_idx ON passkey_challenges (expires_at);
