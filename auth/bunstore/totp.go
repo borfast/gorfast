@@ -12,9 +12,9 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// ErrTOTPCounterRegressed is returned by SaveTOTP when the save would lower
+// ErrTOTPCounterRegressed is returned by SaveTOTP when the save would not raise
 // the stored counter of the active credential.
-var ErrTOTPCounterRegressed = errors.New("bunstore: TOTP counter would go down")
+var ErrTOTPCounterRegressed = errors.New("bunstore: TOTP counter would not go up")
 
 // totpModel holds both slots of a user's TOTP enrollment. A nil ID means the
 // slot is empty.
@@ -197,7 +197,7 @@ func (s *TOTPStore) SaveTOTP(ctx context.Context, cred *totp.Credential) error {
 		Set("active_counter = ?", int64(cred.LastUsedCounter)).
 		Where("user_id = ?", cred.UserID).
 		Where("active_id = ?", cred.ID).
-		Where("active_counter <= ?", int64(cred.LastUsedCounter)).
+		Where("active_counter < ?", int64(cred.LastUsedCounter)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: saving TOTP: %w", err)
@@ -213,7 +213,7 @@ func (s *TOTPStore) SaveTOTP(ctx context.Context, cred *totp.Credential) error {
 	return s.explainFailedSave(ctx, cred)
 }
 
-// explainFailedSave tells a lowered counter apart from a credential that is
+// explainFailedSave tells a counter that did not go up apart from a credential that is
 // gone or replaced.
 func (s *TOTPStore) explainFailedSave(ctx context.Context, cred *totp.Credential) error {
 	var activeID *string

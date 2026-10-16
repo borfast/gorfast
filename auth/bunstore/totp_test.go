@@ -96,6 +96,24 @@ func TestSaveTOTPLoweredCounterReturnsErrTOTPCounterRegressed(t *testing.T) {
 	})
 }
 
+func TestSaveTOTPAtTheStoredCounterReturnsErrTOTPCounterRegressed(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		s := bunstore.NewTOTPStore(db)
+		cred := activeTOTP(t, s, "alice", "c1", 10)
+
+		if err := s.SaveTOTP(t.Context(), cred); !errors.Is(err, bunstore.ErrTOTPCounterRegressed) {
+			t.Fatalf("SaveTOTP = %v, want ErrTOTPCounterRegressed", err)
+		}
+		got, err := s.GetActiveTOTP(t.Context(), "alice")
+		if err != nil {
+			t.Fatalf("GetActiveTOTP: %v", err)
+		}
+		if got.LastUsedCounter != 10 {
+			t.Errorf("LastUsedCounter = %d, want 10", got.LastUsedCounter)
+		}
+	})
+}
+
 func TestTOTPCounterAboveMaxInt64(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		ctx := t.Context()

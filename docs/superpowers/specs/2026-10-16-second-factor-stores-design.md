@@ -114,9 +114,11 @@ explicit transaction.
   ELSE active_counter END`, which takes the higher of the two on both dialects
   without `GREATEST`. Zero rows returns `totp.ErrTOTPNotEnrolled`.
 - **`SaveTOTP`**: `UPDATE ... SET active_secret = ?, active_counter = ? WHERE
-  user_id = ? AND active_id = ? AND active_counter <= ?`. On zero rows, a
-  follow-up read chooses the error: if the active slot still has this ID, the
-  counter would have gone down, and the store returns a new
+  user_id = ? AND active_id = ? AND active_counter < ?`. A save must raise the counter: two
+  concurrent `Validate` calls for one code save the same counter, and only the
+  first may succeed. On zero rows, a follow-up read chooses the error: if the
+  active slot still has this ID, the counter did not go up, and the store
+  returns a new
   `bunstore.ErrTOTPCounterRegressed`; otherwise it returns
   `totp.ErrTOTPNotEnrolled`. Unlike `memstore`, a late save for a credential
   that was replaced or deleted cannot bring it back.
@@ -219,6 +221,7 @@ fails the build if a Postgres subtest skips.
 - `SaveTOTP` with a stale credential ID, after a `ReplacePending` and
   `ConfirmEnrollment`, returns `totp.ErrTOTPNotEnrolled` and leaves the new
   credential unchanged.
+- A `SaveTOTP` at the stored counter returns `ErrTOTPCounterRegressed`.
 - A counter above `math.MaxInt64` is rejected by `ConfirmEnrollment` and
   `SaveTOTP`.
 - A second credential with the same `credential_id` returns
@@ -244,6 +247,9 @@ fails the build if a Postgres subtest skips.
   to Sulis.
 - **`memstore.SaveTOTP` can bring back a replaced credential.** It writes the
   active slot when the IDs differ or no active credential exists. `bunstore`
+  refuses. To be reported to Sulis.
+- **`memstore.SaveTOTP` accepts a save at the stored counter**, so two
+  concurrent `Validate` calls with one code can both succeed. `bunstore`
   refuses. To be reported to Sulis.
 - **Expired challenges stay** until the application runs
   `DeleteExpiredChallenges`, or until someone consumes them.
