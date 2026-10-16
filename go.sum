@@ -1,5 +1,5 @@
-github.com/borfast/sulis v0.2.1 h1:ASapDC1WWmebvREVufA2SHXCqB8hc9HFT+Z6AZtl9Sc=
-github.com/borfast/sulis v0.2.1/go.mod h1:6EcW5Ggbxjg1R93LSloltxL/WmFaqjr+dPwugcEYAAw=
+github.com/borfast/sulis v0.3.0 h1:f7yoDunS6kiEe0IKtrIJChJDkxIcYrNNF4ZLEZ3EhZY=
+github.com/borfast/sulis v0.3.0/go.mod h1:6EcW5Ggbxjg1R93LSloltxL/WmFaqjr+dPwugcEYAAw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

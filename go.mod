@@ -3,7 +3,7 @@ module github.com/borfast/gorfast
 go 1.27.0
 
 require (
-	github.com/borfast/sulis v0.2.1
+	github.com/borfast/sulis v0.3.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
