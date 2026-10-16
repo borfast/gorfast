@@ -174,8 +174,8 @@ func (s *UserStore) explainFailedUpdate(ctx context.Context, id string) error {
 	return sulis.ErrConcurrentUpdate
 }
 
-// DeleteUser removes the user and every session and token that names the
-// user in one transaction, so a deleted account cannot keep signing in.
+// DeleteUser removes the user, and their sessions, tokens and second factors,
+// in one transaction. Passkey challenges are left to expire.
 func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
 	if id == "" {
 		return nil
@@ -189,8 +189,13 @@ func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
 		if _, err := tx.NewDelete().Model((*sessionModel)(nil)).Where("user_id = ?", id).Exec(ctx); err != nil {
 			return err
 		}
-		_, err := tx.NewDelete().Model((*tokenModel)(nil)).Where("user_id = ?", id).Exec(ctx)
-		return err
+		// The recovery set row goes before its codes, for the lock order.
+		for _, model := range []any{(*tokenModel)(nil), (*totpModel)(nil), (*passkeyModel)(nil), (*recoverySetModel)(nil), (*recoveryCodeModel)(nil)} {
+			if _, err := tx.NewDelete().Model(model).Where("user_id = ?", id).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting user: %w", err)

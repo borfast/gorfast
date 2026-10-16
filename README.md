@@ -43,8 +43,15 @@ read only when it is actually needed.
 
 This repository also holds a Go module, `github.com/borfast/gorfast`.
 `auth/bunstore` provides [Bun](https://bun.uptrace.dev/)-backed implementations
-of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, for
-Postgres and SQLite.
+of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, and of the
+`totp.Store`, `passkey.Store`, `passkey.ChallengeStore` and `recovery.Store`
+interfaces, for Postgres and SQLite.
+`DeleteUser` also removes the user's TOTP credential, passkeys and recovery
+codes.
+
+Passkey challenges expire after five minutes, which `WithChallengeTTL` changes.
+Expired rows stay until the application calls `DeleteExpiredChallenges`, so run
+it on a schedule.
 
 `crypt` encrypts column values at rest with a rotating keyring.
 Generate a key with `go run github.com/borfast/gorfast/crypt/cmd/newkey@f9e66db3e375288edb3fa9fb23dd6d55740f1456`,
