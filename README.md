@@ -48,6 +48,9 @@ of Sulis's `UserStore`, `SessionStore` and `TokenStore` interfaces, and of the
 interfaces, for Postgres and SQLite.
 `DeleteUser` also removes the user's TOTP credential, passkeys and recovery
 codes.
+`migrations.Apply` creates every table; an application that runs `migrations.FS`
+with its own tool must also apply `0002_second_factors`, which adds the
+second-factor tables.
 
 Passkey challenges expire after five minutes, which `WithChallengeTTL` changes.
 Expired rows stay until the application calls `DeleteExpiredChallenges`, so run

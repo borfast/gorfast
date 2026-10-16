@@ -17,7 +17,7 @@ var ErrChallengeNotFound = errors.New("bunstore: challenge not found or expired"
 const defaultChallengeTTL = 5 * time.Minute
 
 type challengeModel struct {
-	bun.BaseModel `bun:"table:passkey_challenges,alias:pc"`
+	bun.BaseModel `bun:"table:passkey_challenges,alias:ch"`
 
 	ChallengeKey string    `bun:"challenge_key,pk"`
 	SessionData  []byte    `bun:"session_data"`

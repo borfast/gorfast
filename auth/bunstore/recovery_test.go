@@ -35,6 +35,8 @@ func countRows(t *testing.T, db bun.IDB, table, userID string) int {
 	return n
 }
 
+// SQLite allows one writer at a time, so only the Postgres subtest can show the
+// race the lock row prevents.
 func TestConcurrentReplaceCodesForANewUser(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewRecoveryStore(db)
