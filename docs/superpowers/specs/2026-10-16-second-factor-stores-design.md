@@ -142,18 +142,18 @@ explicit transaction.
   rows returns `passkey.ErrPasskeyNotFound`.
 - **`DeleteCredentialsByUserID`** is one `DELETE ... WHERE user_id = ?`.
 - **`DeleteCredential`** runs in one transaction:
-  1. `UPDATE passkey_credentials SET user_id = user_id WHERE user_id = ?`.
-     This changes nothing, but on Postgres it locks every credential row the
-     user has, and on SQLite it takes the database write lock.
-  2. Read the user's credential IDs.
-  3. In Go: if `id` is not among them, return `passkey.ErrPasskeyNotFound`; if
+  1. `UPDATE passkey_credentials SET user_id = user_id WHERE user_id = ?
+     RETURNING id`. This changes nothing, but on Postgres it locks every
+     credential row the user has and returns the IDs of exactly those rows,
+     and on SQLite it takes the database write lock.
+  2. In Go: if `id` is not among them, return `passkey.ErrPasskeyNotFound`; if
      it is the only one and `allowLast` is false, return
      `passkey.ErrLastCredential`.
-  4. `DELETE ... WHERE id = ? AND user_id = ?`.
+  3. `DELETE ... WHERE id = ? AND user_id = ?`.
 
   Two concurrent deletes of a user's last two credentials run one after the
-  other: the second waits at step 1, then reads one remaining credential and
-  refuses.
+  other: the second waits at step 1, gets one ID back, and refuses. A
+  credential saved after step 1 starts is neither locked nor counted.
 
 ### `passkey.ChallengeStore`
 
@@ -203,12 +203,16 @@ row, `passkey_credentials` rows, `recovery_code_sets` row and
 `recovery_codes`, in that order. Challenges are not included: their keys are
 opaque, and they expire. An empty ID still deletes nothing.
 
-Lock order is the same in every `bunstore` transaction that takes more than
-one lock: the recovery set row comes before the codes in `ReplaceCodes`,
-`ConsumeCode`, `DeleteCodes` and `DeleteUser`. `DeleteCredential` locks only
-passkey rows. So these transactions wait for each other but cannot deadlock.
-A caller's own transaction that spans several stores is outside this
-guarantee.
+`ReplaceCodes`, `ConsumeCode`, `DeleteCodes` and `DeleteUser` take the user's
+`recovery_code_sets` row before any code row, so for one user they run one
+after another and do not deadlock with each other. `DeleteCredential` takes
+all its locks in step 1 and then deletes only a row it locked. On Postgres, a
+statement that locks several rows locks them in scan order, and that order can
+differ between transactions after a row version moves, so concurrent
+`DeleteCredential` calls, or `DeleteCredential` and `DeleteUser`, for one user
+can deadlock in rare cases. Postgres then aborts one transaction with
+SQLSTATE `40P01` and no row changes. A caller's own transaction that spans
+several stores is outside this section.
 
 ## 7. Testing
 

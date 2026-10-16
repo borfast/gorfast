@@ -154,24 +154,16 @@ func (s *PasskeyStore) UpdateCredentialAfterLogin(ctx context.Context, credentia
 	return requireOneRow(res, passkey.ErrPasskeyNotFound, "updating passkey credential after login")
 }
 
-// DeleteCredential locks the user's credentials first (a no-op write), so two
-// deletes for one user run one after the other.
+// DeleteCredential locks and reads the user's credential IDs in one statement,
+// so the IDs counted are the rows locked.
 func (s *PasskeyStore) DeleteCredential(ctx context.Context, userID, id string, allowLast bool) error {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewUpdate().
+		var ids []string
+		err := tx.NewUpdate().
 			Model((*passkeyModel)(nil)).
 			Set("user_id = user_id").
 			Where("user_id = ?", userID).
-			Exec(ctx)
-		if err != nil {
-			return err
-		}
-
-		var ids []string
-		err = tx.NewSelect().
-			Model((*passkeyModel)(nil)).
-			Column("id").
-			Where("user_id = ?", userID).
+			Returning("id").
 			Scan(ctx, &ids)
 		if err != nil {
 			return err
