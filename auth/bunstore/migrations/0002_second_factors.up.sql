@@ -9,3 +9,23 @@ CREATE TABLE IF NOT EXISTS totp_credentials (
     pending_secret     TEXT,
     pending_created_at TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL,
+    credential_id    BYTEA NOT NULL,
+    public_key       BYTEA NOT NULL,
+    attestation_type TEXT NOT NULL DEFAULT '',
+    aaguid           BYTEA,
+    sign_count       BIGINT NOT NULL DEFAULT 0,
+    name             TEXT NOT NULL DEFAULT '',
+    transports       JSONB,
+    backup_eligible  BOOLEAN NOT NULL DEFAULT FALSE,
+    backup_state     BOOLEAN NOT NULL DEFAULT FALSE,
+    last_used_at     TIMESTAMPTZ,
+    discoverable     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMPTZ NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS passkey_credentials_credential_id_key ON passkey_credentials (credential_id);
+CREATE INDEX IF NOT EXISTS passkey_credentials_user_id_idx ON passkey_credentials (user_id);
