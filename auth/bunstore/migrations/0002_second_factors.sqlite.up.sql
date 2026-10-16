@@ -37,3 +37,14 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
 );
 
 CREATE INDEX IF NOT EXISTS passkey_challenges_expires_at_idx ON passkey_challenges (expires_at);
+
+CREATE TABLE IF NOT EXISTS recovery_code_sets (
+    user_id     TEXT PRIMARY KEY,
+    replaced_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    user_id   TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    PRIMARY KEY (user_id, code_hash)
+);
