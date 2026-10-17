@@ -2,6 +2,8 @@ module github.com/borfast/gorfast
 
 go 1.27.0
 
+toolchain go1.27.2
+
 require (
 	github.com/borfast/sulis v0.3.0
 	github.com/go-webauthn/webauthn v0.18.2
