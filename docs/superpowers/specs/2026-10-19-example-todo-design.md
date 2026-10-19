@@ -110,10 +110,14 @@ a session, and the application then creates the profile. All three commit
 together or not at all, and the session cookie is set only after the commit.
 To-do writes run through the runner too, with the ownership check inside the
 same transaction as the write. Sign-in runs through the runner as an operation
-that owns its transaction, so the §10 rule about keeping failed-attempt
-bookkeeping applies. That needs Sulis's failure lockout, which is off by
-default; the application enables it with long backoffs, as Sulis's
-documentation advises.
+that owns its transaction.
+
+The application leaves Sulis's failure lockout off, its default, and says why
+in a comment: people copy example code, and lockout lets anyone lock a person
+out of their account, so an application should turn it on only for a clear
+reason. With lockout off, a failed sign-in writes nothing. The §10 check on
+keeping failed-attempt bookkeeping therefore runs in a test that turns lockout
+on for that test only.
 
 A composition problem the application exposes: `sulis.New` takes the stores,
 so running `Register` inside a transaction needs a Sulis whose stores use that
@@ -209,7 +213,6 @@ flow in a real browser.
 - The application lives in `examples/todo`, in the root module.
 - Sulis's CSRF protection instead of Go's `http.CrossOriginProtection`, because
   Sulis already has it and adds a token check that does not depend on headers.
-- Failure lockout enabled, so sign-in has bookkeeping for §10 to protect.
 - No password pepper, which is Sulis's default.
 - The limits in §4 and the defaults in §6.
 - Logging and shutdown stay in `main`; connection opening stays in the
@@ -230,9 +233,10 @@ flow in a real browser.
    the storage failure to be reported instead. Decided: Sulis returns it, in
    the same release as question 1, in a form that lets the caller tell a
    storage failure from a wrong password.
+3. **Failure lockout stays off** in the application, as §5 explains.
 
-Both changes are a prerequisite: they ship in one Sulis release, planned in
-the Sulis repository, and `go.mod` moves to it before this work starts.
+Changes 1 and 2 are a prerequisite: they ship in one Sulis release, planned
+in the Sulis repository, and `go.mod` moves to it before this work starts.
 
 ## 12. Risks
 
