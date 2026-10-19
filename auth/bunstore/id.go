@@ -1,0 +1,65 @@
+package bunstore
+
+import (
+	"database/sql"
+	"fmt"
+	"uuid"
+
+	"github.com/uptrace/bun/dialect"
+	"github.com/uptrace/bun/schema"
+)
+
+// ID is a sulis ID as a Bun value: a native uuid on Postgres, 16 bytes on SQLite.
+type ID uuid.UUID
+
+var (
+	_ schema.QueryAppender = ID{}
+	_ sql.Scanner          = (*ID)(nil)
+)
+
+// AppendQuery writes id as UUID text on Postgres and as 16 raw bytes on SQLite.
+func (id ID) AppendQuery(gen schema.QueryGen, b []byte) ([]byte, error) {
+	switch name := gen.Dialect().Name(); name {
+	case dialect.PG:
+		return gen.Dialect().AppendString(b, uuid.UUID(id).String()), nil
+	case dialect.SQLite:
+		return gen.Dialect().AppendBytes(b, id[:]), nil
+	default:
+		return nil, fmt.Errorf("bunstore: no ID form for dialect %s", name)
+	}
+}
+
+// Scan reads an ID as 16 raw bytes or as UUID text. NULL gives uuid.Nil().
+func (id *ID) Scan(src any) error {
+	switch v := src.(type) {
+	case nil:
+		*id = ID(uuid.Nil())
+		return nil
+	case []byte:
+		if len(v) == len(id) {
+			copy(id[:], v)
+			return nil
+		}
+		return id.parse(string(v))
+	case string:
+		return id.parse(v)
+	default:
+		return fmt.Errorf("bunstore: reading an ID: unexpected type %T", src)
+	}
+}
+
+// parse accepts only the 36-character form, which every driver returns.
+func (id *ID) parse(text string) error {
+	if len(text) != 36 {
+		return fmt.Errorf("bunstore: reading an ID: %d characters, want 36", len(text))
+	}
+	u, err := uuid.Parse(text)
+	if err != nil {
+		return fmt.Errorf("bunstore: reading an ID: %w", err)
+	}
+	*id = ID(u)
+	return nil
+}
+
+// String returns the UUID text form.
+func (id ID) String() string { return uuid.UUID(id).String() }
