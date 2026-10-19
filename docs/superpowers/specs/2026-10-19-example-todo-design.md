@@ -171,7 +171,9 @@ New dependencies, from the skill: `github.com/knadh/koanf/v2` and its
   blocklist, rate limiting.
 - **Email verification:** Sulis requires it by default, and with it on every
   sign-in after sign-up fails. Sign-in is password only, so the application
-  turns it off with the visible `WithRequireVerifiedEmail(false)`. See §12.
+  turns it off with the visible `WithRequireVerifiedEmail(false)`. A comment
+  there and the application's README both say that real applications should
+  require email verification. See §12.
 - **Logs and errors:** no passwords, session or CSRF tokens, keys, ciphertext
   or decrypted values in logs. Sulis events go to `slog` through
   `NewSlogSink`. A person never sees an internal error, only a generic page.
