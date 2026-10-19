@@ -35,7 +35,7 @@ func TestRunEncryptorCatchesBrokenImplementations(t *testing.T) {
 			if !strings.Contains(string(out), failure) {
 				t.Fatalf("child did not fail %s:\n%s", subtest, out)
 			}
-			t.Log(failure)
+			t.Logf("child failed TestBrokenHelper/%s, as expected", subtest)
 		})
 	}
 }
@@ -92,7 +92,7 @@ func TestRunKeySourceCatchesReorderedSharedSlice(t *testing.T) {
 	if !strings.Contains(string(out), failure) {
 		t.Fatalf("child did not fail StableOrder:\n%s", out)
 	}
-	t.Log(failure)
+	t.Log("child failed TestReorderingSourceHelper/StableOrder, as expected")
 }
 
 func TestReorderingSourceHelper(t *testing.T) {
