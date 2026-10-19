@@ -2,6 +2,7 @@ package bunstore
 
 import (
 	"database/sql"
+	"encoding"
 	"fmt"
 	"uuid"
 
@@ -14,8 +15,10 @@ import (
 type ID uuid.UUID
 
 var (
-	_ schema.QueryAppender = ID{}
-	_ sql.Scanner          = (*ID)(nil)
+	_ schema.QueryAppender     = ID{}
+	_ sql.Scanner              = (*ID)(nil)
+	_ encoding.TextMarshaler   = ID{}
+	_ encoding.TextUnmarshaler = (*ID)(nil)
 )
 
 // AppendQuery writes id as UUID text on Postgres and as 16 raw bytes on SQLite.
@@ -81,3 +84,9 @@ func fromNullableID(id *ID) uuid.UUID {
 
 // String returns the UUID text form.
 func (id ID) String() string { return uuid.UUID(id).String() }
+
+// MarshalText writes the UUID text form, so JSON shows an ID as uuid.UUID does.
+func (id ID) MarshalText() ([]byte, error) { return uuid.UUID(id).MarshalText() }
+
+// UnmarshalText accepts every form uuid.UUID accepts, unlike Scan.
+func (id *ID) UnmarshalText(text []byte) error { return (*uuid.UUID)(id).UnmarshalText(text) }

@@ -2,6 +2,7 @@ package bunstore_test
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +95,35 @@ func TestIDScan(t *testing.T) {
 				t.Errorf("Scan(%v) = nil, want an error", tt.src)
 			}
 		})
+	}
+}
+
+func TestIDJSONMatchesUUID(t *testing.T) {
+	for _, u := range []uuid.UUID{uuid.NewV7(), uuid.Nil()} {
+		want, err := json.Marshal(u)
+		if err != nil {
+			t.Fatalf("json.Marshal(uuid.UUID): %v", err)
+		}
+		got, err := json.Marshal(bunstore.ID(u))
+		if err != nil {
+			t.Fatalf("json.Marshal(ID): %v", err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("json.Marshal(ID) = %s, want %s", got, want)
+		}
+
+		var back bunstore.ID
+		if err := json.Unmarshal(want, &back); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if uuid.UUID(back) != u {
+			t.Errorf("json.Unmarshal = %v, want %v", back, u)
+		}
+	}
+
+	var id bunstore.ID
+	if err := json.Unmarshal([]byte(`"not-a-uuid"`), &id); err == nil {
+		t.Error("json.Unmarshal of malformed text returned nil, want an error")
 	}
 }
 

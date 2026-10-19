@@ -76,6 +76,7 @@ In the application's own migration, `owner_id` is `UUID` on Postgres, and on
 SQLite `BLOB` with `CHECK (typeof(owner_id) = 'blob' AND length(owner_id) = 16)`.
 A nullable column uses `*bunstore.ID`, with nil meaning NULL, and its SQLite
 check becomes `CHECK (owner_id IS NULL OR (typeof(owner_id) = 'blob' AND length(owner_id) = 16))`.
+In JSON, a `bunstore.ID` is UUID text, the same as a `uuid.UUID`.
 
 Passkey challenges expire after five minutes, which `WithChallengeTTL` changes.
 Expired rows stay until the application calls `DeleteExpiredChallenges`, so run
