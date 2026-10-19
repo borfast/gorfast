@@ -56,15 +56,17 @@ IDs are version 7 UUIDs, stored as `uuid` on Postgres and as 16-byte `BLOB` on
 SQLite. Databases created before this schema must be recreated: there is no
 migration from text IDs.
 An application table that refers to a user stores the ID the same way, through
-`bunstore.ID`. Bun cannot write a bare `uuid.UUID` correctly, so wrap IDs in
-query arguments too:
+`bunstore.ID`. Wrap IDs in query arguments too: Bun sends a bare `uuid.UUID` as
+binary, which Postgres refuses and SQLite accepts, so tests that run only on
+SQLite will not catch a missing wrap. The `type:uuid` tag makes Bun's
+`CreateTable` and bulk updates use `uuid` on Postgres instead of `bytea`:
 
 ```go
 type Unit struct {
 	bun.BaseModel `bun:"table:units"`
 
-	ID      bunstore.ID `bun:"id,pk"`
-	OwnerID bunstore.ID `bun:"owner_id"`
+	ID      bunstore.ID `bun:"id,pk,type:uuid"`
+	OwnerID bunstore.ID `bun:"owner_id,type:uuid"`
 }
 
 err := db.NewSelect().Model(&units).Where("owner_id = ?", bunstore.ID(userID)).Scan(ctx)

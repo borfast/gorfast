@@ -24,8 +24,6 @@ const (
 	magicPurpose   = sulis.TokenPurpose("magic_link")
 )
 
-// seedDeleteUser creates alice and bob with sessions and tokens, plus one
-// magic-link token that belongs to no user yet.
 // userOrNil is testID, except that the empty name means no user.
 func userOrNil(name string) uuid.UUID {
 	if name == "" {
@@ -34,6 +32,8 @@ func userOrNil(name string) uuid.UUID {
 	return testID(name)
 }
 
+// seedDeleteUser creates alice and bob with sessions and tokens, plus one
+// magic-link token that belongs to no user yet.
 func seedDeleteUser(t *testing.T, db bun.IDB) {
 	t.Helper()
 	ctx := t.Context()

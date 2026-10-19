@@ -10,6 +10,7 @@ import (
 )
 
 // ID is a sulis ID as a Bun value: a native uuid on Postgres, 16 bytes on SQLite.
+// A model field needs `type:uuid` in its bun tag for Bun's CreateTable and Bulk.
 type ID uuid.UUID
 
 var (

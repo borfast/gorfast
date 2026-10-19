@@ -196,3 +196,49 @@ func TestIDsSortByCreationTime(t *testing.T) {
 		}
 	})
 }
+
+// unitModel copies the README's example application table.
+type unitModel struct {
+	bun.BaseModel `bun:"table:units"`
+
+	ID      bunstore.ID `bun:"id,pk,type:uuid"`
+	OwnerID bunstore.ID `bun:"owner_id,type:uuid"`
+}
+
+func TestIDColumnsFromBunCreateTable(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		ctx := t.Context()
+		if _, err := db.NewCreateTable().Model((*unitModel)(nil)).Exec(ctx); err != nil {
+			t.Fatalf("creating units: %v", err)
+		}
+		units := []unitModel{{ID: bunstore.ID(uuid.NewV7()), OwnerID: bunstore.ID(uuid.NewV7())}}
+		if _, err := db.NewInsert().Model(&units).Exec(ctx); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+		owner := bunstore.ID(uuid.NewV7())
+		units[0].OwnerID = owner
+		if _, err := db.NewUpdate().Model(&units).Column("owner_id").Bulk().Exec(ctx); err != nil {
+			t.Fatalf("bulk update: %v", err)
+		}
+
+		var got unitModel
+		if err := db.NewSelect().Model(&got).Where("id = ?", units[0].ID).Scan(ctx); err != nil {
+			t.Fatalf("select: %v", err)
+		}
+		if got.OwnerID != owner {
+			t.Errorf("OwnerID = %v, want %v", got.OwnerID, owner)
+		}
+
+		if db.Dialect().Name() == dialect.PG {
+			var typ string
+			err := db.NewRaw(`SELECT data_type FROM information_schema.columns
+				WHERE table_schema = current_schema() AND table_name = 'units' AND column_name = 'owner_id'`).Scan(ctx, &typ)
+			if err != nil {
+				t.Fatalf("reading the column type: %v", err)
+			}
+			if typ != "uuid" {
+				t.Errorf("owner_id is %s, want uuid", typ)
+			}
+		}
+	})
+}
