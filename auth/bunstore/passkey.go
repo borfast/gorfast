@@ -52,11 +52,9 @@ func toPasskeyModel(c *passkey.Credential) *passkeyModel {
 		Transports:      c.Transports,
 		BackupEligible:  c.BackupEligible,
 		BackupState:     c.BackupState,
+		LastUsedAt:      utcPtr(c.LastUsedAt),
 		Discoverable:    c.Discoverable,
 		CreatedAt:       c.CreatedAt.UTC(),
-	}
-	if c.LastUsedAt != nil {
-		m.LastUsedAt = utcPtr(c.LastUsedAt)
 	}
 
 	return m

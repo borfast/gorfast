@@ -74,6 +74,9 @@ func TestWithChallengeTTL(t *testing.T) {
 		if _, err := s.ConsumeChallenge(ctx, "k"); !errors.Is(err, bunstore.ErrChallengeNotFound) {
 			t.Fatalf("got %v, want ErrChallengeNotFound", err)
 		}
+		if n, err := s.DeleteExpiredChallenges(ctx); err != nil || n != 0 {
+			t.Fatalf("DeleteExpiredChallenges = %d, %v; want 0, nil, as consuming deleted it", n, err)
+		}
 	})
 }
 

@@ -90,8 +90,13 @@ func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID uuid.UUID, hash 
 		if err != nil {
 			return err
 		}
-		if err := requireOneRow(res, recovery.ErrCodeNotFound, "consuming recovery code"); err != nil {
+		// Not requireOneRow: the wrap below already names this method.
+		n, err := res.RowsAffected()
+		if err != nil {
 			return err
+		}
+		if n == 0 {
+			return recovery.ErrCodeNotFound
 		}
 
 		res, err = tx.NewDelete().
@@ -102,8 +107,12 @@ func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID uuid.UUID, hash 
 		if err != nil {
 			return err
 		}
-		if err := requireOneRow(res, recovery.ErrCodeNotFound, "consuming recovery code"); err != nil {
+		n, err = res.RowsAffected()
+		if err != nil {
 			return err
+		}
+		if n == 0 {
+			return recovery.ErrCodeNotFound
 		}
 
 		remaining, err = tx.NewSelect().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", ID(userID)).Count(ctx)

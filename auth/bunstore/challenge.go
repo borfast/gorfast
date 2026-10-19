@@ -76,8 +76,8 @@ func (s *ChallengeStore) SaveChallenge(ctx context.Context, key string, sessionD
 	return nil
 }
 
-// ConsumeChallenge deletes and returns the challenge in one statement, so
-// only one caller can receive it. An expired challenge counts as missing.
+// ConsumeChallenge deletes and returns the challenge in one statement, so only
+// one caller gets it. An expired challenge is deleted and reported as missing.
 func (s *ChallengeStore) ConsumeChallenge(ctx context.Context, key string) ([]byte, error) {
 	m := new(challengeModel)
 	err := s.db.NewDelete().

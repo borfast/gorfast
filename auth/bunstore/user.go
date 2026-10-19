@@ -192,7 +192,14 @@ func (s *UserStore) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 			return err
 		}
 		// The recovery set row goes before its codes, for the lock order.
-		for _, model := range []any{(*tokenModel)(nil), (*totpModel)(nil), (*passkeyModel)(nil), (*recoverySetModel)(nil), (*recoveryCodeModel)(nil)} {
+		models := []any{
+			(*tokenModel)(nil),
+			(*totpModel)(nil),
+			(*passkeyModel)(nil),
+			(*recoverySetModel)(nil),
+			(*recoveryCodeModel)(nil),
+		}
+		for _, model := range models {
 			if _, err := tx.NewDelete().Model(model).Where("user_id = ?", id).Exec(ctx); err != nil {
 				return err
 			}
