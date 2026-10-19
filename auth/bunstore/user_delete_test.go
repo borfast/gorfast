@@ -227,6 +227,12 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 		if _, err := bunstore.NewTOTPStore(db).GetActiveTOTP(ctx, testID("alice")); err != nil {
 			t.Fatalf("alice's TOTP after rollback: %v", err)
 		}
+		if got, err := bunstore.NewPasskeyStore(db).GetCredentialsByUserID(ctx, testID("alice")); err != nil || len(got) != 1 {
+			t.Fatalf("alice's passkeys after rollback = %d, %v; want 1, nil", len(got), err)
+		}
+		if n, err := bunstore.NewRecoveryStore(db).CountCodes(ctx, testID("alice")); err != nil || n != 2 {
+			t.Fatalf("alice's recovery codes after rollback = %d, %v; want 2, nil", n, err)
+		}
 	})
 }
 

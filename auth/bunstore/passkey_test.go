@@ -121,6 +121,38 @@ func TestPasskeySignCountAtMaxUint32(t *testing.T) {
 		if got.SignCount != math.MaxUint32 {
 			t.Errorf("SignCount = %d, want %d", got.SignCount, uint32(math.MaxUint32))
 		}
+
+		var raw int64
+		err = db.NewRaw("SELECT sign_count FROM passkey_credentials WHERE id = ?", bunstore.ID(a.ID)).Scan(t.Context(), &raw)
+		if err != nil {
+			t.Fatalf("reading sign_count: %v", err)
+		}
+		if raw != math.MaxUint32 {
+			t.Errorf("sign_count column = %d, want %d", raw, int64(math.MaxUint32))
+		}
+	})
+}
+
+func TestPasskeyNilFieldsReadBackAsNil(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		s := bunstore.NewPasskeyStore(db)
+		a := newPasskey(testID("alice"), testID("a"), time.Now())
+		if err := s.SaveCredential(t.Context(), a); err != nil {
+			t.Fatalf("SaveCredential: %v", err)
+		}
+		got, err := s.GetCredentialByID(t.Context(), a.CredentialID)
+		if err != nil {
+			t.Fatalf("GetCredentialByID: %v", err)
+		}
+		if got.AAGUID != nil {
+			t.Errorf("AAGUID = %v, want nil", got.AAGUID)
+		}
+		if got.Transports != nil {
+			t.Errorf("Transports = %v, want nil", got.Transports)
+		}
+		if got.LastUsedAt != nil {
+			t.Errorf("LastUsedAt = %v, want nil", got.LastUsedAt)
+		}
 	})
 }
 
@@ -158,11 +190,11 @@ func TestPasskeyNotFoundIsErrPasskeyNotFound(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewPasskeyStore(db)
 
-		if _, err := s.GetCredentialByID(t.Context(), []byte("nope")); !errors.Is(err, passkey.ErrPasskeyNotFound) {
+		if _, err := s.GetCredentialByID(t.Context(), []byte("nope")); err != passkey.ErrPasskeyNotFound {
 			t.Errorf("GetCredentialByID: err = %v, want ErrPasskeyNotFound", err)
 		}
 		err := s.UpdateCredentialAfterLogin(t.Context(), []byte("nope"), 1, false, time.Now())
-		if !errors.Is(err, passkey.ErrPasskeyNotFound) {
+		if err != passkey.ErrPasskeyNotFound {
 			t.Errorf("UpdateCredentialAfterLogin: err = %v, want ErrPasskeyNotFound", err)
 		}
 	})

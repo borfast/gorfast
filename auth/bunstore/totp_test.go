@@ -162,9 +162,11 @@ func TestTOTPCounterAboveMaxInt64(t *testing.T) {
 			t.Fatalf("LastUsedCounter = %d, want MaxInt64", active.LastUsedCounter)
 		}
 
+		// Without the size check the counter wraps negative and fails as a replay.
 		active.LastUsedCounter = uint64(math.MaxInt64) + 1
-		if err := s.SaveTOTP(ctx, active); err == nil {
-			t.Fatal("SaveTOTP above MaxInt64 returned nil")
+		err = s.SaveTOTP(ctx, active)
+		if err == nil || errors.Is(err, totp.ErrTOTPReplayed) || errors.Is(err, totp.ErrTOTPNotEnrolled) {
+			t.Fatalf("SaveTOTP above MaxInt64 = %v, want the size error", err)
 		}
 		got, err := s.GetActiveTOTP(ctx, testID("alice"))
 		if err != nil {
@@ -217,8 +219,12 @@ func TestTOTPStoreInsideCallerTransaction(t *testing.T) {
 		if err := bunstore.NewTOTPStore(tx).SaveTOTP(ctx, cred); err != nil {
 			t.Fatalf("SaveTOTP in tx: %v", err)
 		}
-		if _, err := bunstore.NewTOTPStore(tx).GetActiveTOTP(ctx, testID("alice")); err != nil {
+		got, err := bunstore.NewTOTPStore(tx).GetActiveTOTP(ctx, testID("alice"))
+		if err != nil {
 			t.Fatalf("GetActiveTOTP in tx: %v", err)
+		}
+		if got.LastUsedCounter != 11 {
+			t.Fatalf("counter in tx = %d, want 11", got.LastUsedCounter)
 		}
 		if err := tx.Rollback(); err != nil {
 			t.Fatalf("Rollback: %v", err)

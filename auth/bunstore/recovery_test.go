@@ -116,6 +116,26 @@ func TestReplaceCodesWithNoCodesKeepsTheSetRow(t *testing.T) {
 	})
 }
 
+func TestReplaceCodesWithNoCodesClearsExistingCodes(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		s := bunstore.NewRecoveryStore(db)
+		ctx := t.Context()
+
+		if err := s.ReplaceCodes(ctx, testID("alice"), []string{"h1", "h2"}); err != nil {
+			t.Fatalf("ReplaceCodes: %v", err)
+		}
+		if err := s.ReplaceCodes(ctx, testID("alice"), nil); err != nil {
+			t.Fatalf("ReplaceCodes(nil): %v", err)
+		}
+		if n, err := s.CountCodes(ctx, testID("alice")); err != nil || n != 0 {
+			t.Fatalf("CountCodes = %d, %v; want 0, nil", n, err)
+		}
+		if n, err := s.ConsumeCode(ctx, testID("alice"), "h1"); n != 0 || err != recovery.ErrCodeNotFound {
+			t.Fatalf("ConsumeCode = %d, %v; want 0, ErrCodeNotFound", n, err)
+		}
+	})
+}
+
 func TestDeleteCodesRemovesTheSetRow(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewRecoveryStore(db)
