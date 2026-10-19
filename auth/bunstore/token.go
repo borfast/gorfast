@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis"
 	"github.com/uptrace/bun"
@@ -14,8 +15,8 @@ import (
 type tokenModel struct {
 	bun.BaseModel `bun:"table:tokens,alias:t"`
 
-	ID        string    `bun:"id,pk"`
-	UserID    string    `bun:"user_id"`
+	ID        ID        `bun:"id,pk"`
+	UserID    *ID       `bun:"user_id"`
 	TokenHash string    `bun:"token_hash"`
 	Purpose   string    `bun:"purpose"`
 	ExpiresAt time.Time `bun:"expires_at"`
@@ -27,8 +28,8 @@ type tokenModel struct {
 
 func toTokenModel(t *sulis.Token) *tokenModel {
 	return &tokenModel{
-		ID:        t.ID,
-		UserID:    t.UserID,
+		ID:        ID(t.ID),
+		UserID:    nullableID(t.UserID),
 		TokenHash: t.TokenHash,
 		Purpose:   string(t.Purpose),
 		ExpiresAt: t.ExpiresAt,
@@ -41,8 +42,8 @@ func toTokenModel(t *sulis.Token) *tokenModel {
 
 func fromTokenModel(m *tokenModel) *sulis.Token {
 	return &sulis.Token{
-		ID:        m.ID,
-		UserID:    m.UserID,
+		ID:        uuid.UUID(m.ID),
+		UserID:    fromNullableID(m.UserID),
 		TokenHash: m.TokenHash,
 		Purpose:   sulis.TokenPurpose(m.Purpose),
 		ExpiresAt: m.ExpiresAt.UTC(),
@@ -128,10 +129,10 @@ func (s *TokenStore) DeleteExpiredTokens(ctx context.Context) error {
 
 // DeleteUserTokens removes every token for the user and purpose. Deleting
 // zero tokens is not an error.
-func (s *TokenStore) DeleteUserTokens(ctx context.Context, userID string, purpose sulis.TokenPurpose) error {
+func (s *TokenStore) DeleteUserTokens(ctx context.Context, userID uuid.UUID, purpose sulis.TokenPurpose) error {
 	_, err := s.db.NewDelete().
 		Model((*tokenModel)(nil)).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", ID(userID)).
 		Where("purpose = ?", string(purpose)).
 		Exec(ctx)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis/totp"
 	"github.com/uptrace/bun"
@@ -17,21 +18,22 @@ import (
 type totpModel struct {
 	bun.BaseModel `bun:"table:totp_credentials,alias:tc"`
 
-	UserID           string     `bun:"user_id,pk"`
-	ActiveID         *string    `bun:"active_id"`
+	UserID           ID         `bun:"user_id,pk"`
+	ActiveID         *ID        `bun:"active_id"`
 	ActiveSecret     *string    `bun:"active_secret"`
 	ActiveCounter    *int64     `bun:"active_counter"`
 	ActiveCreatedAt  *time.Time `bun:"active_created_at"`
-	PendingID        *string    `bun:"pending_id"`
+	PendingID        *ID        `bun:"pending_id"`
 	PendingSecret    *string    `bun:"pending_secret"`
 	PendingCreatedAt *time.Time `bun:"pending_created_at"`
 }
 
 func toPendingTOTPModel(c *totp.Credential) *totpModel {
 	created := c.CreatedAt.UTC()
+	pendingID := ID(c.ID)
 	return &totpModel{
-		UserID:           c.UserID,
-		PendingID:        &c.ID,
+		UserID:           ID(c.UserID),
+		PendingID:        &pendingID,
 		PendingSecret:    &c.Secret,
 		PendingCreatedAt: &created,
 	}
@@ -42,7 +44,7 @@ func fromActiveTOTPModel(m *totpModel) *totp.Credential {
 	if m.ActiveID == nil {
 		return nil
 	}
-	c := &totp.Credential{ID: *m.ActiveID, UserID: m.UserID, Verified: true}
+	c := &totp.Credential{ID: uuid.UUID(*m.ActiveID), UserID: uuid.UUID(m.UserID), Verified: true}
 	if m.ActiveSecret != nil {
 		c.Secret = *m.ActiveSecret
 	}
@@ -61,7 +63,7 @@ func fromPendingTOTPModel(m *totpModel) *totp.Credential {
 	if m.PendingID == nil {
 		return nil
 	}
-	c := &totp.Credential{ID: *m.PendingID, UserID: m.UserID}
+	c := &totp.Credential{ID: uuid.UUID(*m.PendingID), UserID: uuid.UUID(m.UserID)}
 	if m.PendingSecret != nil {
 		c.Secret = *m.PendingSecret
 	}
@@ -93,9 +95,9 @@ func NewTOTPStore(db bun.IDB) *TOTPStore {
 	return &TOTPStore{db: db}
 }
 
-func (s *TOTPStore) GetActiveTOTP(ctx context.Context, userID string) (*totp.Credential, error) {
+func (s *TOTPStore) GetActiveTOTP(ctx context.Context, userID uuid.UUID) (*totp.Credential, error) {
 	m := new(totpModel)
-	err := s.db.NewSelect().Model(m).Where("user_id = ?", userID).Where("active_id IS NOT NULL").Scan(ctx)
+	err := s.db.NewSelect().Model(m).Where("user_id = ?", ID(userID)).Where("active_id IS NOT NULL").Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, totp.ErrTOTPNotEnrolled
 	}
@@ -106,9 +108,9 @@ func (s *TOTPStore) GetActiveTOTP(ctx context.Context, userID string) (*totp.Cre
 	return fromActiveTOTPModel(m), nil
 }
 
-func (s *TOTPStore) GetPendingTOTP(ctx context.Context, userID string) (*totp.Credential, error) {
+func (s *TOTPStore) GetPendingTOTP(ctx context.Context, userID uuid.UUID) (*totp.Credential, error) {
 	m := new(totpModel)
-	err := s.db.NewSelect().Model(m).Where("user_id = ?", userID).Where("pending_id IS NOT NULL").Scan(ctx)
+	err := s.db.NewSelect().Model(m).Where("user_id = ?", ID(userID)).Where("pending_id IS NOT NULL").Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, totp.ErrTOTPNotEnrolled
 	}
@@ -150,7 +152,7 @@ func (s *TOTPStore) upsertPending(cred *totp.Credential) *bun.InsertQuery {
 		Set("pending_created_at = EXCLUDED.pending_created_at")
 }
 
-func (s *TOTPStore) ConfirmEnrollment(ctx context.Context, userID, pendingID string, counter uint64) (*totp.Credential, error) {
+func (s *TOTPStore) ConfirmEnrollment(ctx context.Context, userID, pendingID uuid.UUID, counter uint64) (*totp.Credential, error) {
 	if err := checkTOTPCounter(counter); err != nil {
 		return nil, err
 	}
@@ -166,8 +168,8 @@ func (s *TOTPStore) ConfirmEnrollment(ctx context.Context, userID, pendingID str
 		Set("pending_id = NULL").
 		Set("pending_secret = NULL").
 		Set("pending_created_at = NULL").
-		Where("user_id = ?", userID).
-		Where("pending_id = ?", pendingID).
+		Where("user_id = ?", ID(userID)).
+		Where("pending_id = ?", ID(pendingID)).
 		Returning("user_id, active_id, active_secret, active_counter, active_created_at").
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -191,8 +193,8 @@ func (s *TOTPStore) SaveTOTP(ctx context.Context, cred *totp.Credential) error {
 		res, err := tx.NewUpdate().
 			Model((*totpModel)(nil)).
 			Set("active_counter = ?", int64(cred.LastUsedCounter)).
-			Where("user_id = ?", cred.UserID).
-			Where("active_id = ?", cred.ID).
+			Where("user_id = ?", ID(cred.UserID)).
+			Where("active_id = ?", ID(cred.ID)).
 			Where("active_counter < ?", int64(cred.LastUsedCounter)).
 			Exec(ctx)
 		if err != nil {
@@ -213,11 +215,11 @@ func (s *TOTPStore) SaveTOTP(ctx context.Context, cred *totp.Credential) error {
 // explainFailedSave tells a counter that did not go up apart from a credential
 // that is gone or replaced.
 func explainFailedSave(ctx context.Context, db bun.IDB, cred *totp.Credential) error {
-	var activeID *string
+	var activeID *ID
 	err := db.NewSelect().
 		Model((*totpModel)(nil)).
 		Column("active_id").
-		Where("user_id = ?", cred.UserID).
+		Where("user_id = ?", ID(cred.UserID)).
 		Scan(ctx, &activeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return totp.ErrTOTPNotEnrolled
@@ -225,15 +227,15 @@ func explainFailedSave(ctx context.Context, db bun.IDB, cred *totp.Credential) e
 	if err != nil {
 		return fmt.Errorf("bunstore: saving TOTP: %w", err)
 	}
-	if activeID != nil && *activeID == cred.ID {
+	if activeID != nil && *activeID == ID(cred.ID) {
 		return totp.ErrTOTPReplayed
 	}
 
 	return totp.ErrTOTPNotEnrolled
 }
 
-func (s *TOTPStore) DeleteTOTP(ctx context.Context, userID string) error {
-	_, err := s.db.NewDelete().Model((*totpModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+func (s *TOTPStore) DeleteTOTP(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.db.NewDelete().Model((*totpModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting TOTP: %w", err)
 	}

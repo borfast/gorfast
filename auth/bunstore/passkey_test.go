@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis/passkey"
 	"github.com/borfast/sulis/storetest"
@@ -24,12 +25,12 @@ func TestPasskeyStore(t *testing.T) {
 	})
 }
 
-func newPasskey(userID, id string, createdAt time.Time) *passkey.Credential {
+func newPasskey(userID, id uuid.UUID, createdAt time.Time) *passkey.Credential {
 	return &passkey.Credential{
 		ID:              id,
 		UserID:          userID,
-		CredentialID:    []byte("raw-" + id),
-		PublicKey:       []byte("pub-" + id),
+		CredentialID:    []byte("raw-" + id.String()),
+		PublicKey:       []byte("pub-" + id.String()),
 		AttestationType: "none",
 		CreatedAt:       createdAt.UTC(),
 	}
@@ -39,24 +40,24 @@ func TestSaveCredentialDuplicate(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewPasskeyStore(db)
 		now := time.Now().UTC().Truncate(time.Second)
-		a := newPasskey("alice", "a", now)
+		a := newPasskey(testID("alice"), testID("a"), now)
 		if err := s.SaveCredential(t.Context(), a); err != nil {
 			t.Fatalf("SaveCredential: %v", err)
 		}
 
-		sameRaw := newPasskey("alice", "other", now)
+		sameRaw := newPasskey(testID("alice"), testID("other"), now)
 		sameRaw.CredentialID = a.CredentialID
 		if err := s.SaveCredential(t.Context(), sameRaw); !errors.Is(err, bunstore.ErrPasskeyCredentialExists) {
 			t.Errorf("same CredentialID: err = %v, want ErrPasskeyCredentialExists", err)
 		}
 
-		sameID := newPasskey("alice", "a", now)
+		sameID := newPasskey(testID("alice"), testID("a"), now)
 		sameID.CredentialID = []byte("raw-different")
 		if err := s.SaveCredential(t.Context(), sameID); !errors.Is(err, bunstore.ErrPasskeyCredentialExists) {
 			t.Errorf("same ID: err = %v, want ErrPasskeyCredentialExists", err)
 		}
 
-		got, err := s.GetCredentialsByUserID(t.Context(), "alice")
+		got, err := s.GetCredentialsByUserID(t.Context(), testID("alice"))
 		if err != nil {
 			t.Fatalf("GetCredentialsByUserID: %v", err)
 		}
@@ -75,7 +76,7 @@ func TestSaveCredentialDuplicateInsideCallerTransaction(t *testing.T) {
 		defer func() { _ = tx.Rollback() }()
 
 		s := bunstore.NewPasskeyStore(tx)
-		a := newPasskey("alice", "a", time.Now())
+		a := newPasskey(testID("alice"), testID("a"), time.Now())
 		if err := s.SaveCredential(t.Context(), a); err != nil {
 			t.Fatalf("SaveCredential: %v", err)
 		}
@@ -83,7 +84,7 @@ func TestSaveCredentialDuplicateInsideCallerTransaction(t *testing.T) {
 			t.Fatalf("duplicate: err = %v, want ErrPasskeyCredentialExists", err)
 		}
 
-		got, err := s.GetCredentialsByUserID(t.Context(), "alice")
+		got, err := s.GetCredentialsByUserID(t.Context(), testID("alice"))
 		if err != nil {
 			t.Fatalf("GetCredentialsByUserID after duplicate: %v", err)
 		}
@@ -96,7 +97,7 @@ func TestSaveCredentialDuplicateInsideCallerTransaction(t *testing.T) {
 func TestPasskeySignCountAtMaxUint32(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewPasskeyStore(db)
-		a := newPasskey("alice", "a", time.Now())
+		a := newPasskey(testID("alice"), testID("a"), time.Now())
 		a.SignCount = math.MaxUint32 - 1
 		if err := s.SaveCredential(t.Context(), a); err != nil {
 			t.Fatalf("SaveCredential: %v", err)
@@ -127,25 +128,27 @@ func TestGetCredentialsByUserIDOrder(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewPasskeyStore(db)
 		t0 := time.Now().UTC().Truncate(time.Second)
-		for _, c := range []*passkey.Credential{
-			newPasskey("alice", "b", t0),
-			newPasskey("alice", "a", t0),
-			newPasskey("alice", "c", t0.Add(-time.Hour)),
+		// NewV7 returns increasing IDs, so a < b < c.
+		a, b, c := uuid.NewV7(), uuid.NewV7(), uuid.NewV7()
+		for _, cred := range []*passkey.Credential{
+			newPasskey(testID("alice"), b, t0),
+			newPasskey(testID("alice"), a, t0),
+			newPasskey(testID("alice"), c, t0.Add(-time.Hour)),
 		} {
-			if err := s.SaveCredential(t.Context(), c); err != nil {
+			if err := s.SaveCredential(t.Context(), cred); err != nil {
 				t.Fatalf("SaveCredential: %v", err)
 			}
 		}
 
-		got, err := s.GetCredentialsByUserID(t.Context(), "alice")
+		got, err := s.GetCredentialsByUserID(t.Context(), testID("alice"))
 		if err != nil {
 			t.Fatalf("GetCredentialsByUserID: %v", err)
 		}
-		var ids []string
-		for _, c := range got {
-			ids = append(ids, c.ID)
+		var ids []uuid.UUID
+		for _, cred := range got {
+			ids = append(ids, cred.ID)
 		}
-		if want := []string{"c", "a", "b"}; !slices.Equal(ids, want) {
+		if want := []uuid.UUID{c, a, b}; !slices.Equal(ids, want) {
 			t.Errorf("IDs = %v, want %v", ids, want)
 		}
 	})
@@ -175,15 +178,15 @@ func TestPasskeyStoreInsideCallerTransaction(t *testing.T) {
 
 		s := bunstore.NewPasskeyStore(tx)
 		now := time.Now()
-		for _, id := range []string{"a", "b"} {
-			if err := s.SaveCredential(t.Context(), newPasskey("alice", id, now)); err != nil {
+		for _, id := range []uuid.UUID{testID("a"), testID("b")} {
+			if err := s.SaveCredential(t.Context(), newPasskey(testID("alice"), id, now)); err != nil {
 				t.Fatalf("SaveCredential: %v", err)
 			}
 		}
-		if err := s.DeleteCredential(t.Context(), "alice", "a", false); err != nil {
+		if err := s.DeleteCredential(t.Context(), testID("alice"), testID("a"), false); err != nil {
 			t.Fatalf("DeleteCredential: %v", err)
 		}
-		got, err := s.GetCredentialsByUserID(t.Context(), "alice")
+		got, err := s.GetCredentialsByUserID(t.Context(), testID("alice"))
 		if err != nil || len(got) != 1 {
 			t.Fatalf("inside tx: %d credentials, err %v, want 1", len(got), err)
 		}
@@ -191,7 +194,7 @@ func TestPasskeyStoreInsideCallerTransaction(t *testing.T) {
 		if err := tx.Rollback(); err != nil {
 			t.Fatalf("Rollback: %v", err)
 		}
-		after, err := bunstore.NewPasskeyStore(db).GetCredentialsByUserID(t.Context(), "alice")
+		after, err := bunstore.NewPasskeyStore(db).GetCredentialsByUserID(t.Context(), testID("alice"))
 		if err != nil || len(after) != 0 {
 			t.Errorf("after rollback: %d credentials, err %v, want 0", len(after), err)
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/borfast/gorfast/auth/bunstore/migrations"
 	"github.com/borfast/sulis"
@@ -66,9 +67,9 @@ func postgresRegressionTx(t *testing.T, driver string) bun.Tx {
 	return tx
 }
 
-func regressionUser(id, email string) *sulis.User {
+func regressionUser(email string) *sulis.User {
 	now := time.Now().UTC()
-	return &sulis.User{ID: id, Email: email, CreatedAt: now, UpdatedAt: now}
+	return &sulis.User{ID: uuid.NewV7(), Email: email, CreatedAt: now, UpdatedAt: now}
 }
 
 func TestPostgresDuplicateUserDrivers(t *testing.T) {
@@ -77,8 +78,8 @@ func TestPostgresDuplicateUserDrivers(t *testing.T) {
 			t.Run(driver+"/"+operation, func(t *testing.T) {
 				store := NewUserStore(postgresRegressionTx(t, driver))
 				ctx := t.Context()
-				first := regressionUser("first", "One@Example.test")
-				second := regressionUser("second", "two@example.test")
+				first := regressionUser("One@Example.test")
+				second := regressionUser("two@example.test")
 				if err := store.CreateUser(ctx, first); err != nil {
 					t.Fatal(err)
 				}
@@ -105,7 +106,7 @@ func TestPostgresDuplicateUserDrivers(t *testing.T) {
 					t.Fatalf("lookup after duplicate create: %v", err)
 				}
 				if got.ID != first.ID {
-					t.Fatalf("lookup returned %q, want %q", got.ID, first.ID)
+					t.Fatalf("lookup returned %v, want %v", got.ID, first.ID)
 				}
 			})
 		}

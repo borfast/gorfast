@@ -61,5 +61,22 @@ func (id *ID) parse(text string) error {
 	return nil
 }
 
+// nullableID maps uuid.Nil() to nil, which a nullable column stores as NULL.
+func nullableID(u uuid.UUID) *ID {
+	if u == uuid.Nil() {
+		return nil
+	}
+	id := ID(u)
+	return &id
+}
+
+// fromNullableID maps a NULL column, read as nil, back to uuid.Nil().
+func fromNullableID(id *ID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil()
+	}
+	return uuid.UUID(*id)
+}
+
 // String returns the UUID text form.
 func (id ID) String() string { return uuid.UUID(id).String() }

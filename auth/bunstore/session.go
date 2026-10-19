@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis"
 	"github.com/uptrace/bun"
@@ -14,8 +15,8 @@ import (
 type sessionModel struct {
 	bun.BaseModel `bun:"table:sessions,alias:s"`
 
-	ID              string         `bun:"id,pk"`
-	UserID          string         `bun:"user_id"`
+	ID              ID             `bun:"id,pk"`
+	UserID          ID             `bun:"user_id"`
 	TokenHash       string         `bun:"token_hash"`
 	ExpiresAt       time.Time      `bun:"expires_at"`
 	CreatedAt       time.Time      `bun:"created_at"`
@@ -30,8 +31,8 @@ type sessionModel struct {
 
 func toSessionModel(s *sulis.Session) *sessionModel {
 	return &sessionModel{
-		ID:              s.ID,
-		UserID:          s.UserID,
+		ID:              ID(s.ID),
+		UserID:          ID(s.UserID),
 		TokenHash:       s.TokenHash,
 		ExpiresAt:       s.ExpiresAt,
 		CreatedAt:       s.CreatedAt,
@@ -47,8 +48,8 @@ func toSessionModel(s *sulis.Session) *sessionModel {
 
 func fromSessionModel(m *sessionModel) *sulis.Session {
 	return &sulis.Session{
-		ID:              m.ID,
-		UserID:          m.UserID,
+		ID:              uuid.UUID(m.ID),
+		UserID:          uuid.UUID(m.UserID),
 		TokenHash:       m.TokenHash,
 		ExpiresAt:       m.ExpiresAt.UTC(),
 		CreatedAt:       m.CreatedAt.UTC(),
@@ -98,9 +99,9 @@ func (s *SessionStore) GetSessionByTokenHash(ctx context.Context, tokenHash stri
 
 // ListUserSessions returns every session for userID. Matching nothing is not
 // an error, and TokenHash is returned exactly as stored.
-func (s *SessionStore) ListUserSessions(ctx context.Context, userID string) ([]sulis.Session, error) {
+func (s *SessionStore) ListUserSessions(ctx context.Context, userID uuid.UUID) ([]sulis.Session, error) {
 	var models []sessionModel
-	err := s.db.NewSelect().Model(&models).Where("user_id = ?", userID).Scan(ctx)
+	err := s.db.NewSelect().Model(&models).Where("user_id = ?", ID(userID)).Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("bunstore: listing sessions: %w", err)
 	}
@@ -115,11 +116,11 @@ func (s *SessionStore) ListUserSessions(ctx context.Context, userID string) ([]s
 
 // DeleteSession scopes the delete to both columns, so a session ID belonging
 // to another user matches no row rather than being checked afterwards.
-func (s *SessionStore) DeleteSession(ctx context.Context, userID, id string) error {
+func (s *SessionStore) DeleteSession(ctx context.Context, userID, id uuid.UUID) error {
 	res, err := s.db.NewDelete().
 		Model((*sessionModel)(nil)).
-		Where("id = ?", id).
-		Where("user_id = ?", userID).
+		Where("id = ?", ID(id)).
+		Where("user_id = ?", ID(userID)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting session: %w", err)
@@ -128,8 +129,8 @@ func (s *SessionStore) DeleteSession(ctx context.Context, userID, id string) err
 	return requireOneRow(res, sulis.ErrSessionNotFound, "deleting session")
 }
 
-func (s *SessionStore) DeleteUserSessions(ctx context.Context, userID string) error {
-	_, err := s.db.NewDelete().Model((*sessionModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+func (s *SessionStore) DeleteUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.db.NewDelete().Model((*sessionModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting user sessions: %w", err)
 	}
@@ -139,11 +140,11 @@ func (s *SessionStore) DeleteUserSessions(ctx context.Context, userID string) er
 
 // DeleteUserSessionsExcept is the "sign out everywhere else" primitive. A
 // keepSessionID that does not exist is not an error.
-func (s *SessionStore) DeleteUserSessionsExcept(ctx context.Context, userID, keepSessionID string) error {
+func (s *SessionStore) DeleteUserSessionsExcept(ctx context.Context, userID, keepSessionID uuid.UUID) error {
 	_, err := s.db.NewDelete().
 		Model((*sessionModel)(nil)).
-		Where("user_id = ?", userID).
-		Where("id <> ?", keepSessionID).
+		Where("user_id = ?", ID(userID)).
+		Where("id <> ?", ID(keepSessionID)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting other user sessions: %w", err)
@@ -166,11 +167,11 @@ func (s *SessionStore) CleanExpired(ctx context.Context) error {
 
 // UpdateAuthenticatedAt stamps the session and touches nothing else. It is
 // the write path behind ReAuthenticate.
-func (s *SessionStore) UpdateAuthenticatedAt(ctx context.Context, id string, at time.Time) error {
+func (s *SessionStore) UpdateAuthenticatedAt(ctx context.Context, id uuid.UUID, at time.Time) error {
 	res, err := s.db.NewUpdate().
 		Model((*sessionModel)(nil)).
 		Set("authenticated_at = ?", at).
-		Where("id = ?", id).
+		Where("id = ?", ID(id)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: stamping authenticated_at: %w", err)
@@ -179,12 +180,12 @@ func (s *SessionStore) UpdateAuthenticatedAt(ctx context.Context, id string, at 
 	return requireOneRow(res, sulis.ErrSessionNotFound, "stamping authenticated_at")
 }
 
-func (s *SessionStore) TouchSession(ctx context.Context, id string, lastSeen time.Time, idleExpires *time.Time) error {
+func (s *SessionStore) TouchSession(ctx context.Context, id uuid.UUID, lastSeen time.Time, idleExpires *time.Time) error {
 	res, err := s.db.NewUpdate().
 		Model((*sessionModel)(nil)).
 		Set("last_seen_at = ?", lastSeen).
 		Set("idle_expires_at = ?", idleExpires).
-		Where("id = ?", id).
+		Where("id = ?", ID(id)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: touching session: %w", err)

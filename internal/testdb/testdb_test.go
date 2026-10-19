@@ -2,9 +2,11 @@ package testdb_test
 
 import (
 	"testing"
+	"uuid"
 
 	"github.com/uptrace/bun"
 
+	"github.com/borfast/gorfast/auth/bunstore"
 	"github.com/borfast/gorfast/internal/testdb"
 )
 
@@ -26,7 +28,7 @@ func TestResetEmptiesTables(t *testing.T) {
 		ctx := t.Context()
 		_, err := db.NewRaw(
 			"INSERT INTO users (id, email, created_at, updated_at) VALUES (?, ?, ?, ?)",
-			"u1", "a@example.com", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
+			bunstore.ID(uuid.NewV7()), "a@example.com", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
 		).Exec(ctx)
 		if err != nil {
 			t.Fatalf("inserting: %v", err)

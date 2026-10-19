@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis/recovery"
 	"github.com/uptrace/bun"
@@ -14,14 +15,14 @@ import (
 type recoverySetModel struct {
 	bun.BaseModel `bun:"table:recovery_code_sets,alias:rs"`
 
-	UserID     string    `bun:"user_id,pk"`
+	UserID     ID        `bun:"user_id,pk"`
 	ReplacedAt time.Time `bun:"replaced_at"`
 }
 
 type recoveryCodeModel struct {
 	bun.BaseModel `bun:"table:recovery_codes,alias:rc"`
 
-	UserID   string `bun:"user_id,pk"`
+	UserID   ID     `bun:"user_id,pk"`
 	CodeHash string `bun:"code_hash,pk"`
 }
 
@@ -38,9 +39,9 @@ func NewRecoveryStore(db bun.IDB) *RecoveryStore {
 	return &RecoveryStore{db: db}
 }
 
-func (s *RecoveryStore) ReplaceCodes(ctx context.Context, userID string, hashes []string) error {
+func (s *RecoveryStore) ReplaceCodes(ctx context.Context, userID uuid.UUID, hashes []string) error {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		set := &recoverySetModel{UserID: userID, ReplacedAt: time.Now().UTC()}
+		set := &recoverySetModel{UserID: ID(userID), ReplacedAt: time.Now().UTC()}
 		_, err := tx.NewInsert().
 			Model(set).
 			On("CONFLICT (user_id) DO UPDATE").
@@ -50,7 +51,7 @@ func (s *RecoveryStore) ReplaceCodes(ctx context.Context, userID string, hashes 
 			return err
 		}
 
-		_, err = tx.NewDelete().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, err = tx.NewDelete().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -62,7 +63,7 @@ func (s *RecoveryStore) ReplaceCodes(ctx context.Context, userID string, hashes 
 				continue
 			}
 			seen[h] = struct{}{}
-			codes = append(codes, recoveryCodeModel{UserID: userID, CodeHash: h})
+			codes = append(codes, recoveryCodeModel{UserID: ID(userID), CodeHash: h})
 		}
 		if len(codes) == 0 {
 			return nil
@@ -78,13 +79,13 @@ func (s *RecoveryStore) ReplaceCodes(ctx context.Context, userID string, hashes 
 	return nil
 }
 
-func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID, hash string) (int, error) {
+func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID uuid.UUID, hash string) (int, error) {
 	remaining := 0
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		res, err := tx.NewUpdate().
 			Model((*recoverySetModel)(nil)).
 			Set("user_id = user_id").
-			Where("user_id = ?", userID).
+			Where("user_id = ?", ID(userID)).
 			Exec(ctx)
 		if err != nil {
 			return err
@@ -95,7 +96,7 @@ func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID, hash string) (i
 
 		res, err = tx.NewDelete().
 			Model((*recoveryCodeModel)(nil)).
-			Where("user_id = ?", userID).
+			Where("user_id = ?", ID(userID)).
 			Where("code_hash = ?", hash).
 			Exec(ctx)
 		if err != nil {
@@ -105,7 +106,7 @@ func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID, hash string) (i
 			return err
 		}
 
-		remaining, err = tx.NewSelect().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", userID).Count(ctx)
+		remaining, err = tx.NewSelect().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", ID(userID)).Count(ctx)
 		return err
 	})
 	if errors.Is(err, recovery.ErrCodeNotFound) {
@@ -119,8 +120,8 @@ func (s *RecoveryStore) ConsumeCode(ctx context.Context, userID, hash string) (i
 }
 
 // CountCodes takes no lock.
-func (s *RecoveryStore) CountCodes(ctx context.Context, userID string) (int, error) {
-	n, err := s.db.NewSelect().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", userID).Count(ctx)
+func (s *RecoveryStore) CountCodes(ctx context.Context, userID uuid.UUID) (int, error) {
+	n, err := s.db.NewSelect().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", ID(userID)).Count(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("bunstore: counting recovery codes: %w", err)
 	}
@@ -128,13 +129,13 @@ func (s *RecoveryStore) CountCodes(ctx context.Context, userID string) (int, err
 	return n, nil
 }
 
-func (s *RecoveryStore) DeleteCodes(ctx context.Context, userID string) error {
+func (s *RecoveryStore) DeleteCodes(ctx context.Context, userID uuid.UUID) error {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewDelete().Model((*recoverySetModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, err := tx.NewDelete().Model((*recoverySetModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 		if err != nil {
 			return err
 		}
-		_, err = tx.NewDelete().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, err = tx.NewDelete().Model((*recoveryCodeModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 		return err
 	})
 	if err != nil {

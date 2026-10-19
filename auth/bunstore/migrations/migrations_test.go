@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/uptrace/bun"
 
+	"github.com/borfast/gorfast/auth/bunstore"
 	"github.com/borfast/gorfast/auth/bunstore/migrations"
 	"github.com/borfast/gorfast/internal/testdb"
 )
@@ -34,9 +36,10 @@ func TestApplyAfterOnly0001(t *testing.T) {
 				t.Fatalf("dropping %s: %v", name, err)
 			}
 		}
+		userID := bunstore.ID(uuid.NewV7())
 		_, err := db.ExecContext(ctx,
 			"INSERT INTO users (id, email, created_at, updated_at) VALUES (?, ?, ?, ?)",
-			"u1", "u1@example.test", time.Now().UTC(), time.Now().UTC())
+			userID, "u1@example.test", time.Now().UTC(), time.Now().UTC())
 		if err != nil {
 			t.Fatalf("inserting user: %v", err)
 		}
@@ -52,7 +55,7 @@ func TestApplyAfterOnly0001(t *testing.T) {
 			}
 		}
 		var n int
-		if err := db.NewRaw("SELECT count(*) FROM users WHERE id = ?", "u1").Scan(ctx, &n); err != nil || n != 1 {
+		if err := db.NewRaw("SELECT count(*) FROM users WHERE id = ?", userID).Scan(ctx, &n); err != nil || n != 1 {
 			t.Errorf("users row count = %d, err = %v, want 1", n, err)
 		}
 	})

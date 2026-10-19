@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis/passkey"
 	"github.com/go-webauthn/webauthn/protocol"
@@ -22,8 +23,8 @@ var ErrPasskeyCredentialExists = errors.New("bunstore: passkey credential alread
 type passkeyModel struct {
 	bun.BaseModel `bun:"table:passkey_credentials,alias:pc"`
 
-	ID              string                            `bun:"id,pk"`
-	UserID          string                            `bun:"user_id"`
+	ID              ID                                `bun:"id,pk"`
+	UserID          ID                                `bun:"user_id"`
 	CredentialID    []byte                            `bun:"credential_id"`
 	PublicKey       []byte                            `bun:"public_key"`
 	AttestationType string                            `bun:"attestation_type"`
@@ -40,8 +41,8 @@ type passkeyModel struct {
 
 func toPasskeyModel(c *passkey.Credential) *passkeyModel {
 	m := &passkeyModel{
-		ID:              c.ID,
-		UserID:          c.UserID,
+		ID:              ID(c.ID),
+		UserID:          ID(c.UserID),
 		CredentialID:    c.CredentialID,
 		PublicKey:       c.PublicKey,
 		AttestationType: c.AttestationType,
@@ -63,8 +64,8 @@ func toPasskeyModel(c *passkey.Credential) *passkeyModel {
 
 func fromPasskeyModel(m *passkeyModel) passkey.Credential {
 	return passkey.Credential{
-		ID:              m.ID,
-		UserID:          m.UserID,
+		ID:              uuid.UUID(m.ID),
+		UserID:          uuid.UUID(m.UserID),
 		CredentialID:    m.CredentialID,
 		PublicKey:       m.PublicKey,
 		AttestationType: m.AttestationType,
@@ -106,11 +107,11 @@ func (s *PasskeyStore) SaveCredential(ctx context.Context, cred *passkey.Credent
 	return requireOneRow(res, ErrPasskeyCredentialExists, "saving passkey credential")
 }
 
-func (s *PasskeyStore) GetCredentialsByUserID(ctx context.Context, userID string) ([]passkey.Credential, error) {
+func (s *PasskeyStore) GetCredentialsByUserID(ctx context.Context, userID uuid.UUID) ([]passkey.Credential, error) {
 	var models []passkeyModel
 	err := s.db.NewSelect().
 		Model(&models).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", ID(userID)).
 		OrderExpr("created_at, id").
 		Scan(ctx)
 	if err != nil {
@@ -156,19 +157,19 @@ func (s *PasskeyStore) UpdateCredentialAfterLogin(ctx context.Context, credentia
 
 // DeleteCredential locks and reads the user's credential IDs in one statement,
 // so the IDs counted are the rows locked.
-func (s *PasskeyStore) DeleteCredential(ctx context.Context, userID, id string, allowLast bool) error {
+func (s *PasskeyStore) DeleteCredential(ctx context.Context, userID, id uuid.UUID, allowLast bool) error {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		var ids []string
+		var ids []ID
 		err := tx.NewUpdate().
 			Model((*passkeyModel)(nil)).
 			Set("user_id = user_id").
-			Where("user_id = ?", userID).
+			Where("user_id = ?", ID(userID)).
 			Returning("id").
 			Scan(ctx, &ids)
 		if err != nil {
 			return err
 		}
-		if !slices.Contains(ids, id) {
+		if !slices.Contains(ids, ID(id)) {
 			return passkey.ErrPasskeyNotFound
 		}
 		if len(ids) == 1 && !allowLast {
@@ -177,8 +178,8 @@ func (s *PasskeyStore) DeleteCredential(ctx context.Context, userID, id string, 
 
 		_, err = tx.NewDelete().
 			Model((*passkeyModel)(nil)).
-			Where("id = ?", id).
-			Where("user_id = ?", userID).
+			Where("id = ?", ID(id)).
+			Where("user_id = ?", ID(userID)).
 			Exec(ctx)
 		return err
 	})
@@ -192,8 +193,8 @@ func (s *PasskeyStore) DeleteCredential(ctx context.Context, userID, id string, 
 	return nil
 }
 
-func (s *PasskeyStore) DeleteCredentialsByUserID(ctx context.Context, userID string) error {
-	_, err := s.db.NewDelete().Model((*passkeyModel)(nil)).Where("user_id = ?", userID).Exec(ctx)
+func (s *PasskeyStore) DeleteCredentialsByUserID(ctx context.Context, userID uuid.UUID) error {
+	_, err := s.db.NewDelete().Model((*passkeyModel)(nil)).Where("user_id = ?", ID(userID)).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: deleting passkey credentials: %w", err)
 	}
@@ -201,12 +202,12 @@ func (s *PasskeyStore) DeleteCredentialsByUserID(ctx context.Context, userID str
 	return nil
 }
 
-func (s *PasskeyStore) RenameCredential(ctx context.Context, userID, id, name string) error {
+func (s *PasskeyStore) RenameCredential(ctx context.Context, userID, id uuid.UUID, name string) error {
 	res, err := s.db.NewUpdate().
 		Model((*passkeyModel)(nil)).
 		Set("name = ?", name).
-		Where("id = ?", id).
-		Where("user_id = ?", userID).
+		Where("id = ?", ID(id)).
+		Where("user_id = ?", ID(userID)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: renaming passkey credential: %w", err)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis"
 	"github.com/uptrace/bun"
@@ -15,7 +16,7 @@ import (
 type userModel struct {
 	bun.BaseModel `bun:"table:users,alias:u"`
 
-	ID                  string         `bun:"id,pk"`
+	ID                  ID             `bun:"id,pk"`
 	Email               string         `bun:"email"`
 	PasswordHash        string         `bun:"password_hash"`
 	CreatedAt           time.Time      `bun:"created_at"`
@@ -32,7 +33,7 @@ type userModel struct {
 
 func toUserModel(u *sulis.User) *userModel {
 	return &userModel{
-		ID:                  u.ID,
+		ID:                  ID(u.ID),
 		Email:               u.Email,
 		PasswordHash:        u.PasswordHash,
 		CreatedAt:           u.CreatedAt,
@@ -50,7 +51,7 @@ func toUserModel(u *sulis.User) *userModel {
 
 func fromUserModel(m *userModel) *sulis.User {
 	return &sulis.User{
-		ID:                  m.ID,
+		ID:                  uuid.UUID(m.ID),
 		Email:               m.Email,
 		PasswordHash:        m.PasswordHash,
 		CreatedAt:           m.CreatedAt.UTC(),
@@ -98,8 +99,8 @@ func (s *UserStore) CreateUser(ctx context.Context, user *sulis.User) error {
 	return nil
 }
 
-func (s *UserStore) GetUserByID(ctx context.Context, id string) (*sulis.User, error) {
-	return s.getUserBy(ctx, "id", "id = ?", id)
+func (s *UserStore) GetUserByID(ctx context.Context, id uuid.UUID) (*sulis.User, error) {
+	return s.getUserBy(ctx, "id", "id = ?", ID(id))
 }
 
 // GetUserByEmail compares case-insensitively, matching the unique index. On
@@ -113,7 +114,7 @@ func (s *UserStore) GetUserByEmail(ctx context.Context, email string) (*sulis.Us
 	return s.getUserBy(ctx, "email", where, email)
 }
 
-func (s *UserStore) getUserBy(ctx context.Context, what, where, value string) (*sulis.User, error) {
+func (s *UserStore) getUserBy(ctx context.Context, what, where string, value any) (*sulis.User, error) {
 	m := new(userModel)
 	err := s.db.NewSelect().Model(m).Where(where, value).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -138,7 +139,7 @@ func (s *UserStore) UpdateUser(ctx context.Context, user *sulis.User) error {
 				"email_verified_at", "pending_email", "disabled_at",
 				"disabled_reason", "locked_until", "failed_login_attempts").
 			Set("version = version + 1").
-			Where("id = ?", user.ID).
+			Where("id = ?", ID(user.ID)).
 			Where("version = ?", user.Version).
 			Exec(ctx)
 		if err != nil {
@@ -162,8 +163,8 @@ func (s *UserStore) UpdateUser(ctx context.Context, user *sulis.User) error {
 
 // explainFailedUpdate tells a missing row from a stale version, since the
 // UPDATE alone cannot and the contract names a different error for each.
-func (s *UserStore) explainFailedUpdate(ctx context.Context, id string) error {
-	exists, err := s.db.NewSelect().Model((*userModel)(nil)).Where("id = ?", id).Exists(ctx)
+func (s *UserStore) explainFailedUpdate(ctx context.Context, id uuid.UUID) error {
+	exists, err := s.db.NewSelect().Model((*userModel)(nil)).Where("id = ?", ID(id)).Exists(ctx)
 	if err != nil {
 		return fmt.Errorf("bunstore: updating user: %w", err)
 	}
@@ -176,12 +177,13 @@ func (s *UserStore) explainFailedUpdate(ctx context.Context, id string) error {
 
 // DeleteUser removes the user, and their sessions, tokens and second factors,
 // in one transaction. Passkey challenges are left to expire.
-func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
-	if id == "" {
+func (s *UserStore) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	if userID == uuid.Nil() {
 		return nil
 	}
 	// The user row goes first, so a login racing this delete fails on the
 	// missing user instead of leaving a fresh orphan session behind.
+	id := ID(userID)
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if _, err := tx.NewDelete().Model((*userModel)(nil)).Where("id = ?", id).Exec(ctx); err != nil {
 			return err

@@ -1,5 +1,6 @@
+-- IDs are native UUIDs. A NULL tokens.user_id means the token has no user.
 CREATE TABLE IF NOT EXISTS users (
-    id                    TEXT PRIMARY KEY,
+    id                    UUID PRIMARY KEY,
     email                 TEXT NOT NULL,
     password_hash         TEXT NOT NULL DEFAULT '',
     created_at            TIMESTAMPTZ NOT NULL,
@@ -22,8 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (lower(email));
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id                TEXT PRIMARY KEY,
-    user_id           TEXT NOT NULL,
+    id                UUID PRIMARY KEY,
+    user_id           UUID NOT NULL,
     token_hash        TEXT NOT NULL,
     expires_at        TIMESTAMPTZ NOT NULL,
     created_at        TIMESTAMPTZ NOT NULL,
@@ -41,8 +42,8 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions (expires_at);
 
 CREATE TABLE IF NOT EXISTS tokens (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL DEFAULT '',
+    id          UUID PRIMARY KEY,
+    user_id     UUID,
     token_hash  TEXT NOT NULL,
     purpose     TEXT NOT NULL,
     expires_at  TIMESTAMPTZ NOT NULL,

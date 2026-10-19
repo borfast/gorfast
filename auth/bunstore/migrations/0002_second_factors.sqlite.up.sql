@@ -1,18 +1,18 @@
 -- Second-factor tables. A NULL active_id or pending_id means that slot is empty.
 CREATE TABLE IF NOT EXISTS totp_credentials (
-    user_id            TEXT PRIMARY KEY,
-    active_id          TEXT,
+    user_id            BLOB NOT NULL PRIMARY KEY CHECK (typeof(user_id) = 'blob' AND length(user_id) = 16),
+    active_id          BLOB CHECK (active_id IS NULL OR (typeof(active_id) = 'blob' AND length(active_id) = 16)),
     active_secret      TEXT,
     active_counter     INTEGER,
     active_created_at  TIMESTAMP,
-    pending_id         TEXT,
+    pending_id         BLOB CHECK (pending_id IS NULL OR (typeof(pending_id) = 'blob' AND length(pending_id) = 16)),
     pending_secret     TEXT,
     pending_created_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS passkey_credentials (
-    id               TEXT PRIMARY KEY,
-    user_id          TEXT NOT NULL,
+    id               BLOB NOT NULL PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
+    user_id          BLOB NOT NULL CHECK (typeof(user_id) = 'blob' AND length(user_id) = 16),
     credential_id    BLOB NOT NULL,
     public_key       BLOB NOT NULL,
     attestation_type TEXT NOT NULL DEFAULT '',
@@ -39,12 +39,12 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
 CREATE INDEX IF NOT EXISTS passkey_challenges_expires_at_idx ON passkey_challenges (expires_at);
 
 CREATE TABLE IF NOT EXISTS recovery_code_sets (
-    user_id     TEXT PRIMARY KEY,
+    user_id     BLOB NOT NULL PRIMARY KEY CHECK (typeof(user_id) = 'blob' AND length(user_id) = 16),
     replaced_at TIMESTAMP NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS recovery_codes (
-    user_id   TEXT NOT NULL,
+    user_id   BLOB NOT NULL CHECK (typeof(user_id) = 'blob' AND length(user_id) = 16),
     code_hash TEXT NOT NULL,
     PRIMARY KEY (user_id, code_hash)
 );

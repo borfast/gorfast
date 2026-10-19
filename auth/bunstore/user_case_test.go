@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis"
 	"github.com/uptrace/bun"
@@ -29,13 +30,13 @@ func TestUserStoreEmailUniquenessIsCaseInsensitive(t *testing.T) {
 			ctx := t.Context()
 
 			email := caseTestEmail()
-			first := newCaseTestUser(caseTestID("first"), email)
+			first := newCaseTestUser(uuid.NewV7(), email)
 			if err := store.CreateUser(ctx, first); err != nil {
 				t.Fatalf("CreateUser(%q): %v", email, err)
 			}
 
 			dupEmail := strings.ToLower(email)
-			second := newCaseTestUser(caseTestID("second"), dupEmail)
+			second := newCaseTestUser(uuid.NewV7(), dupEmail)
 			err := store.CreateUser(ctx, second)
 			if !errors.Is(err, sulis.ErrUserAlreadyExists) {
 				t.Fatalf("CreateUser(%q) after creating %q: err = %v, want ErrUserAlreadyExists",
@@ -49,7 +50,7 @@ func TestUserStoreEmailUniquenessIsCaseInsensitive(t *testing.T) {
 			ctx := t.Context()
 
 			email := caseTestEmail()
-			created := newCaseTestUser(caseTestID("third"), email)
+			created := newCaseTestUser(uuid.NewV7(), email)
 			if err := store.CreateUser(ctx, created); err != nil {
 				t.Fatalf("CreateUser(%q): %v", email, err)
 			}
@@ -68,18 +69,13 @@ func TestUserStoreEmailUniquenessIsCaseInsensitive(t *testing.T) {
 
 var caseTestSeq atomic.Int64
 
-// caseTestID returns an ID unique within this test binary run.
-func caseTestID(prefix string) string {
-	return fmt.Sprintf("%s-%d", prefix, caseTestSeq.Add(1))
-}
-
 // caseTestEmail returns a mixed-case address at a reserved TLD (RFC 2606),
 // unique within this test binary run, e.g. "Someone3@Example.test".
 func caseTestEmail() string {
 	return fmt.Sprintf("Someone%d@Example.test", caseTestSeq.Add(1))
 }
 
-func newCaseTestUser(id, email string) *sulis.User {
+func newCaseTestUser(id uuid.UUID, email string) *sulis.User {
 	now := time.Now().UTC().Truncate(time.Second)
 	return &sulis.User{
 		ID:        id,

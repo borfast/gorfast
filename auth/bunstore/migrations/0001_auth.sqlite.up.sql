@@ -1,10 +1,13 @@
+-- IDs are 16-byte UUIDs. These tables are not STRICT, so the CHECKs test the type as well
+-- as the length. A NULL tokens.user_id means the token has no user.
+
 -- Uniqueness is on the live address only, and case-insensitive via
 -- COLLATE NOCASE: a caller that bypasses sulis's own lowercase
 -- normalization cannot create "Someone@Example.test" alongside
 -- "someone@example.test". pending_email is staged and may legitimately
 -- duplicate another account's live address until confirmed.
 CREATE TABLE IF NOT EXISTS users (
-    id                    TEXT PRIMARY KEY,
+    id                    BLOB NOT NULL PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
     email                 TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash         TEXT NOT NULL DEFAULT '',
     created_at            TIMESTAMP NOT NULL,
@@ -20,8 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id                TEXT PRIMARY KEY,
-    user_id           TEXT NOT NULL,
+    id                BLOB NOT NULL PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
+    user_id           BLOB NOT NULL CHECK (typeof(user_id) = 'blob' AND length(user_id) = 16),
     token_hash        TEXT NOT NULL,
     expires_at        TIMESTAMP NOT NULL,
     created_at        TIMESTAMP NOT NULL,
@@ -39,8 +42,8 @@ CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions (expires_at);
 
 CREATE TABLE IF NOT EXISTS tokens (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL DEFAULT '',
+    id          BLOB NOT NULL PRIMARY KEY CHECK (typeof(id) = 'blob' AND length(id) = 16),
+    user_id     BLOB CHECK (user_id IS NULL OR (typeof(user_id) = 'blob' AND length(user_id) = 16)),
     token_hash  TEXT NOT NULL,
     purpose     TEXT NOT NULL,
     expires_at  TIMESTAMP NOT NULL,

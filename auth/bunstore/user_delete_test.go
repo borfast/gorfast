@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/borfast/sulis"
 	"github.com/borfast/sulis/totp"
@@ -25,6 +26,14 @@ const (
 
 // seedDeleteUser creates alice and bob with sessions and tokens, plus one
 // magic-link token that belongs to no user yet.
+// userOrNil is testID, except that the empty name means no user.
+func userOrNil(name string) uuid.UUID {
+	if name == "" {
+		return uuid.Nil()
+	}
+	return testID(name)
+}
+
 func seedDeleteUser(t *testing.T, db bun.IDB) {
 	t.Helper()
 	ctx := t.Context()
@@ -35,12 +44,12 @@ func seedDeleteUser(t *testing.T, db bun.IDB) {
 	tokens := bunstore.NewTokenStore(db)
 
 	for _, u := range []struct{ id, email string }{{"alice", "alice@example.test"}, {"bob", "bob@example.test"}} {
-		if err := users.CreateUser(ctx, &sulis.User{ID: u.id, Email: u.email, CreatedAt: now, UpdatedAt: now}); err != nil {
+		if err := users.CreateUser(ctx, &sulis.User{ID: testID(u.id), Email: u.email, CreatedAt: now, UpdatedAt: now}); err != nil {
 			t.Fatalf("create %s: %v", u.id, err)
 		}
 	}
 	for _, s := range []struct{ id, user string }{{"s1", "alice"}, {"s2", "alice"}, {"s3", "bob"}} {
-		session := &sulis.Session{ID: s.id, UserID: s.user, TokenHash: s.id + "-hash", ExpiresAt: later, CreatedAt: now, AuthenticatedAt: now, LastSeenAt: now}
+		session := &sulis.Session{ID: testID(s.id), UserID: testID(s.user), TokenHash: s.id + "-hash", ExpiresAt: later, CreatedAt: now, AuthenticatedAt: now, LastSeenAt: now}
 		if err := sessions.CreateSession(ctx, session); err != nil {
 			t.Fatalf("create session %s: %v", s.id, err)
 		}
@@ -53,7 +62,7 @@ func seedDeleteUser(t *testing.T, db bun.IDB) {
 		{"t2", "bob", bobResetHash, "", resetPurpose},
 		{"t3", "", magicLinkHash, "alice@example.test", magicPurpose},
 	} {
-		token := &sulis.Token{ID: tk.id, UserID: tk.user, TokenHash: tk.hash, Purpose: tk.purpose, ExpiresAt: later, CreatedAt: now, Email: tk.email}
+		token := &sulis.Token{ID: testID(tk.id), UserID: userOrNil(tk.user), TokenHash: tk.hash, Purpose: tk.purpose, ExpiresAt: later, CreatedAt: now, Email: tk.email}
 		if err := tokens.CreateToken(ctx, token); err != nil {
 			t.Fatalf("create token %s: %v", tk.id, err)
 		}
@@ -69,18 +78,19 @@ func seedSecondFactors(t *testing.T, db bun.IDB) {
 	totps, passkeys, recoveries := bunstore.NewTOTPStore(db), bunstore.NewPasskeyStore(db), bunstore.NewRecoveryStore(db)
 
 	for _, user := range []string{"alice", "bob"} {
-		activeTOTP(t, totps, user, user+"-totp", 1)
-		if err := passkeys.SaveCredential(ctx, newPasskey(user, user+"-passkey", now)); err != nil {
+		activeTOTP(t, totps, testID(user), testID(user+"-totp"), 1)
+		if err := passkeys.SaveCredential(ctx, newPasskey(testID(user), testID(user+"-passkey"), now)); err != nil {
 			t.Fatalf("save passkey for %s: %v", user, err)
 		}
-		if err := recoveries.ReplaceCodes(ctx, user, []string{"h1", "h2"}); err != nil {
+		if err := recoveries.ReplaceCodes(ctx, testID(user), []string{"h1", "h2"}); err != nil {
 			t.Fatalf("replace codes for %s: %v", user, err)
 		}
 	}
 }
 
-func requireSessionCount(t *testing.T, sessions sulis.SessionStore, userID string, want int) {
+func requireSessionCount(t *testing.T, sessions sulis.SessionStore, user string, want int) {
 	t.Helper()
+	userID := testID(user)
 	got, err := sessions.ListUserSessions(t.Context(), userID)
 	if err != nil {
 		t.Fatalf("list sessions for %s: %v", userID, err)
@@ -96,7 +106,7 @@ func TestDeleteUserRemovesSessionsAndTokens(t *testing.T) {
 		seedDeleteUser(t, db)
 		users, sessions, tokens := bunstore.NewUserStore(db), bunstore.NewSessionStore(db), bunstore.NewTokenStore(db)
 
-		if err := users.DeleteUser(ctx, "alice"); err != nil {
+		if err := users.DeleteUser(ctx, testID("alice")); err != nil {
 			t.Fatalf("DeleteUser: %v", err)
 		}
 		requireSessionCount(t, sessions, "alice", 0)
@@ -110,7 +120,7 @@ func TestDeleteUserRemovesSessionsAndTokens(t *testing.T) {
 		if _, err := tokens.ConsumeToken(ctx, magicLinkHash, magicPurpose); err != nil {
 			t.Fatalf("token without a user after delete: %v", err)
 		}
-		if _, err := users.GetUserByID(ctx, "bob"); err != nil {
+		if _, err := users.GetUserByID(ctx, testID("bob")); err != nil {
 			t.Fatalf("bob after alice's delete: %v", err)
 		}
 	})
@@ -123,35 +133,35 @@ func TestDeleteUserRemovesSecondFactors(t *testing.T) {
 		seedSecondFactors(t, db)
 		totps, passkeys, recoveries := bunstore.NewTOTPStore(db), bunstore.NewPasskeyStore(db), bunstore.NewRecoveryStore(db)
 
-		if err := bunstore.NewUserStore(db).DeleteUser(ctx, "alice"); err != nil {
+		if err := bunstore.NewUserStore(db).DeleteUser(ctx, testID("alice")); err != nil {
 			t.Fatalf("DeleteUser: %v", err)
 		}
 
-		if _, err := totps.GetActiveTOTP(ctx, "alice"); !errors.Is(err, totp.ErrTOTPNotEnrolled) {
+		if _, err := totps.GetActiveTOTP(ctx, testID("alice")); !errors.Is(err, totp.ErrTOTPNotEnrolled) {
 			t.Fatalf("alice's TOTP after delete: %v, want ErrTOTPNotEnrolled", err)
 		}
-		creds, err := passkeys.GetCredentialsByUserID(ctx, "alice")
+		creds, err := passkeys.GetCredentialsByUserID(ctx, testID("alice"))
 		if err != nil || len(creds) != 0 {
 			t.Fatalf("alice's passkeys after delete = %d, %v; want 0", len(creds), err)
 		}
-		if n, err := recoveries.CountCodes(ctx, "alice"); err != nil || n != 0 {
+		if n, err := recoveries.CountCodes(ctx, testID("alice")); err != nil || n != 0 {
 			t.Fatalf("alice's codes after delete = %d, %v; want 0", n, err)
 		}
-		if n := countRows(t, db, "recovery_code_sets", "alice"); n != 0 {
+		if n := countRows(t, db, "recovery_code_sets", testID("alice")); n != 0 {
 			t.Fatalf("alice's recovery_code_sets rows = %d, want 0", n)
 		}
 
-		if _, err := totps.GetActiveTOTP(ctx, "bob"); err != nil {
+		if _, err := totps.GetActiveTOTP(ctx, testID("bob")); err != nil {
 			t.Fatalf("bob's TOTP after alice's delete: %v", err)
 		}
-		creds, err = passkeys.GetCredentialsByUserID(ctx, "bob")
+		creds, err = passkeys.GetCredentialsByUserID(ctx, testID("bob"))
 		if err != nil || len(creds) != 1 {
 			t.Fatalf("bob's passkeys after alice's delete = %d, %v; want 1", len(creds), err)
 		}
-		if n, err := recoveries.CountCodes(ctx, "bob"); err != nil || n != 2 {
+		if n, err := recoveries.CountCodes(ctx, testID("bob")); err != nil || n != 2 {
 			t.Fatalf("bob's codes after alice's delete = %d, %v; want 2", n, err)
 		}
-		if n := countRows(t, db, "recovery_code_sets", "bob"); n != 1 {
+		if n := countRows(t, db, "recovery_code_sets", testID("bob")); n != 1 {
 			t.Fatalf("bob's recovery_code_sets rows = %d, want 1", n)
 		}
 	})
@@ -163,20 +173,20 @@ func TestDeleteUserMissingAndEmptyID(t *testing.T) {
 		seedDeleteUser(t, db)
 		users, sessions, tokens := bunstore.NewUserStore(db), bunstore.NewSessionStore(db), bunstore.NewTokenStore(db)
 
-		for _, id := range []string{"nobody", ""} {
+		for _, id := range []uuid.UUID{testID("nobody"), uuid.Nil()} {
 			if err := users.DeleteUser(ctx, id); err != nil {
-				t.Fatalf("DeleteUser(%q): %v", id, err)
+				t.Fatalf("DeleteUser(%v): %v", id, err)
 			}
 		}
 		for _, id := range []string{"alice", "bob"} {
-			if _, err := users.GetUserByID(ctx, id); err != nil {
+			if _, err := users.GetUserByID(ctx, testID(id)); err != nil {
 				t.Fatalf("%s after no-op deletes: %v", id, err)
 			}
 		}
 		requireSessionCount(t, sessions, "alice", 2)
 		requireSessionCount(t, sessions, "bob", 1)
 		if _, err := tokens.ConsumeToken(ctx, magicLinkHash, magicPurpose); err != nil {
-			t.Fatalf("token without a user after DeleteUser(\"\"): %v", err)
+			t.Fatalf("token without a user after DeleteUser(uuid.Nil()): %v", err)
 		}
 	})
 }
@@ -193,10 +203,10 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 		defer func() { _ = tx.Rollback() }()
 		txUsers, txSessions, txTokens := bunstore.NewUserStore(tx), bunstore.NewSessionStore(tx), bunstore.NewTokenStore(tx)
 
-		if err := txUsers.DeleteUser(ctx, "alice"); err != nil {
+		if err := txUsers.DeleteUser(ctx, testID("alice")); err != nil {
 			t.Fatalf("DeleteUser in tx: %v", err)
 		}
-		if _, err := txUsers.GetUserByID(ctx, "alice"); !errors.Is(err, sulis.ErrUserNotFound) {
+		if _, err := txUsers.GetUserByID(ctx, testID("alice")); !errors.Is(err, sulis.ErrUserNotFound) {
 			t.Fatalf("alice through tx: %v, want ErrUserNotFound", err)
 		}
 		requireSessionCount(t, txSessions, "alice", 0)
@@ -207,14 +217,14 @@ func TestDeleteUserInsideCallerTransaction(t *testing.T) {
 		if err := tx.Rollback(); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := bunstore.NewUserStore(db).GetUserByID(ctx, "alice"); err != nil {
+		if _, err := bunstore.NewUserStore(db).GetUserByID(ctx, testID("alice")); err != nil {
 			t.Fatalf("alice after rollback: %v", err)
 		}
 		requireSessionCount(t, bunstore.NewSessionStore(db), "alice", 2)
 		if _, err := bunstore.NewTokenStore(db).ConsumeToken(ctx, aliceResetHash, resetPurpose); err != nil {
 			t.Fatalf("alice's token after rollback: %v", err)
 		}
-		if _, err := bunstore.NewTOTPStore(db).GetActiveTOTP(ctx, "alice"); err != nil {
+		if _, err := bunstore.NewTOTPStore(db).GetActiveTOTP(ctx, testID("alice")); err != nil {
 			t.Fatalf("alice's TOTP after rollback: %v", err)
 		}
 	})
@@ -240,7 +250,7 @@ func TestDeleteUserDeleteOrder(t *testing.T) {
 		seedSecondFactors(t, db)
 		rec := &queryRecorder{}
 		db.AddQueryHook(rec)
-		if err := bunstore.NewUserStore(db).DeleteUser(t.Context(), "alice"); err != nil {
+		if err := bunstore.NewUserStore(db).DeleteUser(t.Context(), testID("alice")); err != nil {
 			t.Fatalf("DeleteUser: %v", err)
 		}
 		want := []string{"users", "sessions", "tokens", "totp_credentials", "passkey_credentials", "recovery_code_sets", "recovery_codes"}
