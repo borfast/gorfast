@@ -84,25 +84,25 @@ func TestSaveTOTPAfterDeleteTOTP(t *testing.T) {
 	})
 }
 
-func TestSaveTOTPLoweredCounterReturnsErrTOTPCounterRegressed(t *testing.T) {
+func TestSaveTOTPLoweredCounterReturnsErrTOTPReplayed(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewTOTPStore(db)
 		cred := activeTOTP(t, s, "alice", "c1", 10)
 
 		cred.LastUsedCounter = 9
-		if err := s.SaveTOTP(t.Context(), cred); !errors.Is(err, bunstore.ErrTOTPCounterRegressed) {
-			t.Fatalf("SaveTOTP = %v, want ErrTOTPCounterRegressed", err)
+		if err := s.SaveTOTP(t.Context(), cred); !errors.Is(err, totp.ErrTOTPReplayed) {
+			t.Fatalf("SaveTOTP = %v, want ErrTOTPReplayed", err)
 		}
 	})
 }
 
-func TestSaveTOTPAtTheStoredCounterReturnsErrTOTPCounterRegressed(t *testing.T) {
+func TestSaveTOTPAtTheStoredCounterReturnsErrTOTPReplayed(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		s := bunstore.NewTOTPStore(db)
 		cred := activeTOTP(t, s, "alice", "c1", 10)
 
-		if err := s.SaveTOTP(t.Context(), cred); !errors.Is(err, bunstore.ErrTOTPCounterRegressed) {
-			t.Fatalf("SaveTOTP = %v, want ErrTOTPCounterRegressed", err)
+		if err := s.SaveTOTP(t.Context(), cred); !errors.Is(err, totp.ErrTOTPReplayed) {
+			t.Fatalf("SaveTOTP = %v, want ErrTOTPReplayed", err)
 		}
 		got, err := s.GetActiveTOTP(t.Context(), "alice")
 		if err != nil {
@@ -110,6 +110,26 @@ func TestSaveTOTPAtTheStoredCounterReturnsErrTOTPCounterRegressed(t *testing.T) 
 		}
 		if got.LastUsedCounter != 10 {
 			t.Errorf("LastUsedCounter = %d, want 10", got.LastUsedCounter)
+		}
+	})
+}
+
+func TestSaveTOTPWritesOnlyTheCounter(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		s := bunstore.NewTOTPStore(db)
+		cred := activeTOTP(t, s, "alice", "c1", 10)
+
+		cred.LastUsedCounter = 11
+		cred.Secret = "changed"
+		if err := s.SaveTOTP(t.Context(), cred); err != nil {
+			t.Fatalf("SaveTOTP: %v", err)
+		}
+		got, err := s.GetActiveTOTP(t.Context(), "alice")
+		if err != nil {
+			t.Fatalf("GetActiveTOTP: %v", err)
+		}
+		if got.LastUsedCounter != 11 || got.Secret != "secret-c1" {
+			t.Errorf("counter %d, secret %q; want 11, %q", got.LastUsedCounter, got.Secret, "secret-c1")
 		}
 	})
 }
@@ -191,7 +211,11 @@ func TestTOTPStoreInsideCallerTransaction(t *testing.T) {
 		}
 		defer func() { _ = tx.Rollback() }()
 
-		activeTOTP(t, bunstore.NewTOTPStore(tx), "alice", "c1", 10)
+		cred := activeTOTP(t, bunstore.NewTOTPStore(tx), "alice", "c1", 10)
+		cred.LastUsedCounter = 11
+		if err := bunstore.NewTOTPStore(tx).SaveTOTP(ctx, cred); err != nil {
+			t.Fatalf("SaveTOTP in tx: %v", err)
+		}
 		if _, err := bunstore.NewTOTPStore(tx).GetActiveTOTP(ctx, "alice"); err != nil {
 			t.Fatalf("GetActiveTOTP in tx: %v", err)
 		}

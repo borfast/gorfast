@@ -12,10 +12,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// ErrTOTPCounterRegressed is returned by SaveTOTP when the save would not raise
-// the stored counter of the active credential.
-var ErrTOTPCounterRegressed = errors.New("bunstore: TOTP counter would not go up")
-
 // totpModel holds both slots of a user's TOTP enrollment. A nil ID means the
 // slot is empty.
 type totpModel struct {
@@ -184,40 +180,41 @@ func (s *TOTPStore) ConfirmEnrollment(ctx context.Context, userID, pendingID str
 	return fromActiveTOTPModel(m), nil
 }
 
-// SaveTOTP updates the secret and counter of the active credential with this
-// ID. A credential that was replaced or deleted is never brought back.
+// SaveTOTP raises only the active credential's counter. A refused save returns
+// totp.ErrTOTPReplayed, or totp.ErrTOTPNotEnrolled if cred.ID is not active.
 func (s *TOTPStore) SaveTOTP(ctx context.Context, cred *totp.Credential) error {
 	if err := checkTOTPCounter(cred.LastUsedCounter); err != nil {
 		return err
 	}
 
-	res, err := s.db.NewUpdate().
-		Model((*totpModel)(nil)).
-		Set("active_secret = ?", cred.Secret).
-		Set("active_counter = ?", int64(cred.LastUsedCounter)).
-		Where("user_id = ?", cred.UserID).
-		Where("active_id = ?", cred.ID).
-		Where("active_counter < ?", int64(cred.LastUsedCounter)).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("bunstore: saving TOTP: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("bunstore: saving TOTP: %w", err)
-	}
-	if n > 0 {
-		return nil
-	}
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewUpdate().
+			Model((*totpModel)(nil)).
+			Set("active_counter = ?", int64(cred.LastUsedCounter)).
+			Where("user_id = ?", cred.UserID).
+			Where("active_id = ?", cred.ID).
+			Where("active_counter < ?", int64(cred.LastUsedCounter)).
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("bunstore: saving TOTP: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("bunstore: saving TOTP: %w", err)
+		}
+		if n > 0 {
+			return nil
+		}
 
-	return s.explainFailedSave(ctx, cred)
+		return explainFailedSave(ctx, tx, cred)
+	})
 }
 
-// explainFailedSave tells a counter that did not go up apart from a credential that is
-// gone or replaced.
-func (s *TOTPStore) explainFailedSave(ctx context.Context, cred *totp.Credential) error {
+// explainFailedSave tells a counter that did not go up apart from a credential
+// that is gone or replaced.
+func explainFailedSave(ctx context.Context, db bun.IDB, cred *totp.Credential) error {
 	var activeID *string
-	err := s.db.NewSelect().
+	err := db.NewSelect().
 		Model((*totpModel)(nil)).
 		Column("active_id").
 		Where("user_id = ?", cred.UserID).
@@ -229,7 +226,7 @@ func (s *TOTPStore) explainFailedSave(ctx context.Context, cred *totp.Credential
 		return fmt.Errorf("bunstore: saving TOTP: %w", err)
 	}
 	if activeID != nil && *activeID == cred.ID {
-		return ErrTOTPCounterRegressed
+		return totp.ErrTOTPReplayed
 	}
 
 	return totp.ErrTOTPNotEnrolled
