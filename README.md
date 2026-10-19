@@ -52,6 +52,29 @@ codes.
 with its own tool must also apply `0002_second_factors`, which adds the
 second-factor tables.
 
+IDs are version 7 UUIDs, stored as `uuid` on Postgres and as 16-byte `BLOB` on
+SQLite. Databases created before this schema must be recreated: there is no
+migration from text IDs.
+An application table that refers to a user stores the ID the same way, through
+`bunstore.ID`. Bun cannot write a bare `uuid.UUID` correctly, so wrap IDs in
+query arguments too:
+
+```go
+type Unit struct {
+	bun.BaseModel `bun:"table:units"`
+
+	ID      bunstore.ID `bun:"id,pk"`
+	OwnerID bunstore.ID `bun:"owner_id"`
+}
+
+err := db.NewSelect().Model(&units).Where("owner_id = ?", bunstore.ID(userID)).Scan(ctx)
+```
+
+In the application's own migration, `owner_id` is `UUID` on Postgres, and on
+SQLite `BLOB` with `CHECK (typeof(owner_id) = 'blob' AND length(owner_id) = 16)`.
+A nullable column uses `*bunstore.ID`, with nil meaning NULL, and its SQLite
+check becomes `CHECK (owner_id IS NULL OR (typeof(owner_id) = 'blob' AND length(owner_id) = 16))`.
+
 Passkey challenges expire after five minutes, which `WithChallengeTTL` changes.
 Expired rows stay until the application calls `DeleteExpiredChallenges`, so run
 it on a schedule.
@@ -71,11 +94,11 @@ SQLite runs with no setup. Postgres tests skip unless a database is
 available: `docker compose up -d postgres`, then set
 `GORFAST_TEST_POSTGRES_DSN='postgres://gorfast:gorfast@localhost:5433/gorfast_test?sslmode=disable'`.
 
-`go.mod` requires Sulis `v0.3.0`, the first release where
-`passkey.Store.RenameCredential` takes the owner's user ID. A local Sulis
-checkout is not required. For local
-development against a different Sulis checkout, use a personal, untracked
-`go.work` override rather than changing the committed module dependency.
+`go.mod` requires Sulis `v0.5.0`, the release whose IDs are `uuid.UUID` and
+whose `totp.Store.SaveTOTP` refuses a save that does not raise the counter. A
+local Sulis checkout is not required. For local development against a different
+Sulis checkout, use a personal, untracked `go.work` override rather than
+changing the committed module dependency.
 
 ## Development
 
