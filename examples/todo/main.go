@@ -128,8 +128,11 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 // It adds no query hook: Bun inlines arguments, so one would log ciphertext.
 func openDatabase(url string) (*bun.DB, string, error) {
 	if strings.HasPrefix(url, "postgres://") || strings.HasPrefix(url, "postgresql://") {
-		db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(url))), pgdialect.New())
-		return db, "postgres", nil
+		connector, err := postgresConnector(url)
+		if err != nil {
+			return nil, "", err
+		}
+		return bun.NewDB(sql.OpenDB(connector), pgdialect.New()), "postgres", nil
 	}
 	sqldb, err := sql.Open("sqlite", url+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
@@ -138,4 +141,15 @@ func openDatabase(url string) (*bun.DB, string, error) {
 	// Sign-in reads before it writes, so a second connection could fail as busy.
 	sqldb.SetMaxOpenConns(1)
 	return bun.NewDB(sqldb, sqlitedialect.New()), "sqlite", nil
+}
+
+// postgresConnector turns pgdriver's panic on a bad URL into an error. It drops
+// the panic value, which holds the URL and its password.
+func postgresConnector(url string) (c *pgdriver.Connector, err error) {
+	defer func() {
+		if recover() != nil {
+			c, err = nil, errors.New("TODO_DATABASE__URL is not a valid PostgreSQL URL")
+		}
+	}()
+	return pgdriver.NewConnector(pgdriver.WithDSN(url)), nil
 }

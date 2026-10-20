@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,5 +141,20 @@ func TestProblemsReportsEveryProblem(t *testing.T) {
 func TestProblemsNone(t *testing.T) {
 	if err := config.NewProblems("TODO_").Err(); err != nil {
 		t.Errorf("Err() = %v, want nil", err)
+	}
+}
+
+func TestLoadHidesEnvFileContentsOnParseError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("TODO_CRYPT__KEYS=\"xchacha20poly1305:SECRET\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var cfg testConfig
+	err := config.Load(&cfg, "TODO_", testDefaults(), path)
+	if err == nil {
+		t.Fatal("expected an error for an env file that does not parse")
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("error %q contains env file contents", err)
 	}
 }

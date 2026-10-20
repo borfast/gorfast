@@ -26,9 +26,19 @@ func Load(target any, prefix string, defaults map[string]any, envFile string) er
 
 	if envFile != "" {
 		transform := func(name string) string { return TransformKey(prefix, name) }
-		err := k.Load(file.Provider(envFile), dotenv.ParserEnv(prefix, ".", transform))
+		raw, err := file.Provider(envFile).ReadBytes()
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("loading env file: %w", err)
+		}
+		if err == nil {
+			// The parser's error quotes the file, which may hold secrets, so drop it.
+			values, perr := dotenv.ParserEnv(prefix, ".", transform).Unmarshal(raw)
+			if perr != nil {
+				return fmt.Errorf("config: env file %s does not parse", envFile)
+			}
+			if err := k.Load(confmap.Provider(values, "."), nil); err != nil {
+				return fmt.Errorf("loading env file: %w", err)
+			}
 		}
 	}
 

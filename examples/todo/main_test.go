@@ -137,3 +137,18 @@ func TestRunServesAndStops(t *testing.T) {
 		t.Fatal("run did not stop after cancel")
 	}
 }
+
+func TestRunRefusesAMalformedPostgresURLWithoutLeakingIt(t *testing.T) {
+	envFile := setEnv(t, newKeySpec(t), "info")
+	t.Setenv("TODO_DATABASE__URL", "postgres://app:s3cretpw@db.example:54x2/todo")
+	err := run(t.Context(), envFile, &syncBuffer{})
+	if err == nil {
+		t.Fatal("run returned nil with a malformed database URL")
+	}
+	if !strings.Contains(err.Error(), "TODO_DATABASE__URL") {
+		t.Errorf("error %q does not name TODO_DATABASE__URL", err)
+	}
+	if strings.Contains(err.Error(), "s3cretpw") {
+		t.Errorf("error %q contains the password", err)
+	}
+}
