@@ -192,6 +192,21 @@ func TestLimiterBudgets(t *testing.T) {
 	})
 }
 
+func TestPostgresPoolIsBounded(t *testing.T) {
+	// sql.OpenDB does not connect, so no server is needed.
+	db, dialect, err := openDatabase("postgres://app:secret@db.example:5432/todo")
+	if err != nil {
+		t.Fatalf("openDatabase: %v", err)
+	}
+	defer db.Close()
+	if dialect != "postgres" {
+		t.Fatalf("dialect = %q, want postgres", dialect)
+	}
+	if got := db.Stats().MaxOpenConnections; got != 10 {
+		t.Errorf("MaxOpenConnections = %d, want 10", got)
+	}
+}
+
 func TestRunDeletesExpiredSessions(t *testing.T) {
 	envFile := setEnv(t, newKeySpec(t), "info")
 	db, _, err := openDatabase(os.Getenv("TODO_DATABASE__URL"))

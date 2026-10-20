@@ -168,7 +168,11 @@ func openDatabase(url string) (*bun.DB, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		return bun.NewDB(sql.OpenDB(connector), pgdialect.New()), "postgres", nil
+		sqldb := sql.OpenDB(connector)
+		// More than the 4 hashes, which run inside a transaction, so to-do requests
+		// still get a connection; bounded, so a flood cannot use up the server's.
+		sqldb.SetMaxOpenConns(10)
+		return bun.NewDB(sqldb, pgdialect.New()), "postgres", nil
 	}
 	sqldb, err := sql.Open("sqlite", url+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
