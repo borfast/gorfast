@@ -25,6 +25,7 @@ import (
 	"github.com/borfast/gorfast/auth/bunstore"
 	"github.com/borfast/gorfast/crypt"
 	"github.com/borfast/gorfast/data"
+	"github.com/borfast/gorfast/examples/todo/internal/events"
 	"github.com/borfast/gorfast/examples/todo/internal/storage"
 	"github.com/borfast/gorfast/examples/todo/internal/todo"
 	"github.com/borfast/gorfast/examples/todo/internal/web"
@@ -86,7 +87,7 @@ func setup(t *testing.T, db *bun.DB, opts ...sulis.Option) *fixture {
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	opts = append([]sulis.Option{
 		sulis.WithCookieName(web.SessionCookieName),
-		sulis.WithEventSink(sulis.NewSlogSink(logger)),
+		sulis.WithEventSink(events.NewSink(logger)),
 		sulis.WithRequireVerifiedEmail(false),
 		sulis.WithoutRateLimiting(),
 		sulis.WithArgon2Params(sulis.Argon2Params{Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32}),
@@ -95,7 +96,7 @@ func setup(t *testing.T, db *bun.DB, opts ...sulis.Option) *fixture {
 	if err != nil {
 		t.Fatalf("sulis.New: %v", err)
 	}
-	svc := todo.NewService(data.NewBunRunner(db, storage.Binder(base, keys)))
+	svc := todo.NewService(events.Hold(data.NewBunRunner(db, storage.Binder(base, keys)), logger))
 
 	handler, err := web.New(svc, base, logger)
 	if err != nil {

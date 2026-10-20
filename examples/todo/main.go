@@ -28,6 +28,7 @@ import (
 	"github.com/borfast/gorfast/crypt"
 	"github.com/borfast/gorfast/data"
 	"github.com/borfast/gorfast/examples/todo/internal/config"
+	"github.com/borfast/gorfast/examples/todo/internal/events"
 	"github.com/borfast/gorfast/examples/todo/internal/storage"
 	"github.com/borfast/gorfast/examples/todo/internal/todo"
 	"github.com/borfast/gorfast/examples/todo/internal/web"
@@ -74,7 +75,7 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 	users, sessions, tokens := bunstore.NewUserStore(db), bunstore.NewSessionStore(db), bunstore.NewTokenStore(db)
 	auth, err := sulis.New(users, sessions, tokens, sulis.NoSecondFactors{},
 		sulis.WithCookieName(web.SessionCookieName),
-		sulis.WithEventSink(sulis.NewSlogSink(logger)),
+		sulis.WithEventSink(events.NewSink(logger)),
 		sulis.WithLimiter(newLimiter()),
 		// Sign-in is password only, so nothing verifies an email address.
 		// Real applications should require email verification.
@@ -86,7 +87,8 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 		return fmt.Errorf("creating Sulis: %w", err)
 	}
 
-	runner := data.NewBunRunner(db, storage.Binder(auth, keyring))
+	// Sulis events from a transaction are logged once it ends.
+	runner := events.Hold(data.NewBunRunner(db, storage.Binder(auth, keyring)), logger)
 	handler, err := web.New(todo.NewService(runner), auth, logger)
 	if err != nil {
 		return err

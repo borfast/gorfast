@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/borfast/gorfast/auth/bunstore"
 	"github.com/borfast/gorfast/crypt"
 	"github.com/borfast/gorfast/data"
+	"github.com/borfast/gorfast/examples/todo/internal/events"
 	"github.com/borfast/gorfast/examples/todo/internal/storage"
 	"github.com/borfast/gorfast/examples/todo/internal/todo"
 	"github.com/borfast/gorfast/internal/testdb"
@@ -222,17 +224,28 @@ func TestSignUpThenSignIn(t *testing.T) {
 func TestSignUpFailureAfterRegisterLeavesNothing(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		ctx := t.Context()
-		f := newFixture(t, db)
+		var logs strings.Builder
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		f := newFixture(t, db, sulis.WithEventSink(events.NewSink(logger)))
 		bind := storage.Binder(f.base, f.enc)
-		svc := f.service(func(tx bun.IDB) (todo.Repos, error) {
+		svc := todo.NewService(events.Hold(data.NewBunRunner(db, func(tx bun.IDB) (todo.Repos, error) {
 			repos, err := bind(tx)
 			repos.Profiles = failingProfiles{repos.Profiles}
 			return repos, err
-		})
+		}), logger))
 
 		in, err := svc.SignUp(ctx, "alice@example.com", password, "Alice", sulis.RequestInfo{})
 		if !errors.Is(err, errFail) || in != (todo.SignedIn{}) {
 			t.Fatalf("SignUp = %+v, %v; want nothing and errFail", in, err)
+		}
+		var registered []string
+		for line := range strings.Lines(logs.String()) {
+			if strings.Contains(line, "kind=account.registered") {
+				registered = append(registered, line)
+			}
+		}
+		if len(registered) != 1 || !strings.Contains(registered[0], "transaction=rolled_back") {
+			t.Errorf("the registration event was logged as %q, want once with transaction=rolled_back", registered)
 		}
 		if _, err := bunstore.NewUserStore(db).GetUserByEmail(ctx, "alice@example.com"); !errors.Is(err, sulis.ErrUserNotFound) {
 			t.Errorf("GetUserByEmail after a failed sign-up = %v, want ErrUserNotFound", err)
