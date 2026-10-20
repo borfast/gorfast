@@ -47,8 +47,9 @@ func (s *ProfileStore) toModel(p todo.Profile) (*profileModel, error) {
 	return &profileModel{UserID: bunstore.ID(p.UserID), Name: name}, nil
 }
 
-func (s *ProfileStore) fromModel(m *profileModel) (todo.Profile, error) {
-	userID := uuid.UUID(m.UserID)
+// fromModel opens the name with the caller's userID, not the row's, so a query
+// that loses its user condition fails instead of returning another's name.
+func (s *ProfileStore) fromModel(m *profileModel, userID uuid.UUID) (todo.Profile, error) {
 	name, err := s.enc.Open(m.Name, nameBinding(userID))
 	if err != nil {
 		return todo.Profile{}, fmt.Errorf("storage: opening a profile name: %w", err)
@@ -76,7 +77,7 @@ func (s *ProfileStore) GetProfile(ctx context.Context, userID uuid.UUID) (todo.P
 	if err != nil {
 		return todo.Profile{}, fmt.Errorf("storage: reading a profile: %w", err)
 	}
-	return s.fromModel(m)
+	return s.fromModel(m, userID)
 }
 
 // LockProfile writes the row unchanged, which locks it on both dialects. Call it

@@ -3,7 +3,9 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 	"uuid"
@@ -292,6 +294,55 @@ func TestSealedValueMovedElsewhereFailsToOpen(t *testing.T) {
 		exec(t, db, "UPDATE profiles SET name = (SELECT name FROM profiles WHERE user_id = ?) WHERE user_id = ?", bunstore.ID(alice), bunstore.ID(bob))
 		_, err = profiles.GetProfile(ctx, bob)
 		requireOpenFailure(t, "GetProfile of a name copied to another user", err)
+	})
+}
+
+// ownerFilterDropped is a database whose selects lose the owner or user
+// condition, as a query with a forgotten Where would.
+type ownerFilterDropped struct{ *bun.DB }
+
+func (d ownerFilterDropped) NewSelect() *bun.SelectQuery {
+	return d.DB.NewSelect().Conn(dropOwnerFilter{d.DB})
+}
+
+type dropOwnerFilter struct{ *bun.DB }
+
+var ownerFilter = regexp.MustCompile(`(owner_id|user_id) = [^)]*`)
+
+func (c dropOwnerFilter) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return c.DB.QueryContext(ctx, ownerFilter.ReplaceAllString(query, "1 = 1"), args...)
+}
+
+func TestSealedValueOpensOnlyForTheCaller(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		ctx := t.Context()
+		enc := setup(t, db)
+		alice, bob := uuid.NewV7(), uuid.NewV7()
+		item := newTodo(alice, "alice's plans", time.Now().UTC())
+		create(t, storage.NewTodoStore(db, enc), item)
+		profile := todo.Profile{UserID: alice, Name: "Alice"}
+		if err := storage.NewProfileStore(db, enc).CreateProfile(ctx, profile); err != nil {
+			t.Fatalf("CreateProfile: %v", err)
+		}
+
+		leaky := ownerFilterDropped{db}
+		todos, profiles := storage.NewTodoStore(leaky, enc), storage.NewProfileStore(leaky, enc)
+		_, err := todos.GetTodo(ctx, bob, item.ID)
+		requireOpenFailure(t, "bob's GetTodo without the owner condition", err)
+		_, err = todos.ListTodos(ctx, bob)
+		requireOpenFailure(t, "bob's ListTodos without the owner condition", err)
+		_, err = profiles.GetProfile(ctx, bob)
+		requireOpenFailure(t, "bob's GetProfile without the user condition", err)
+
+		// The owner still reads through the same database.
+		got, err := todos.GetTodo(ctx, alice, item.ID)
+		if err != nil {
+			t.Fatalf("alice's GetTodo: %v", err)
+		}
+		requireTodo(t, got, item)
+		if got, err := profiles.GetProfile(ctx, alice); err != nil || got != profile {
+			t.Errorf("alice's GetProfile = %+v, %v; want %+v", got, err, profile)
+		}
 	})
 }
 

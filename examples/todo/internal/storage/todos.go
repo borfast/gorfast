@@ -59,8 +59,9 @@ func (s *TodoStore) toModel(t todo.Todo) (*todoModel, error) {
 	}, nil
 }
 
-func (s *TodoStore) fromModel(m *todoModel) (todo.Todo, error) {
-	id, ownerID := uuid.UUID(m.ID), uuid.UUID(m.OwnerID)
+// fromModel opens the text with the IDs the caller asked for, not the row's, so
+// a query that loses its owner condition fails instead of returning another's text.
+func (s *TodoStore) fromModel(m *todoModel, id, ownerID uuid.UUID) (todo.Todo, error) {
 	text, err := s.enc.Open(m.Text, textBinding(id, ownerID))
 	if err != nil {
 		return todo.Todo{}, fmt.Errorf("storage: opening a to-do: %w", err)
@@ -98,7 +99,7 @@ func (s *TodoStore) GetTodo(ctx context.Context, ownerID, id uuid.UUID) (todo.To
 	if err != nil {
 		return todo.Todo{}, fmt.Errorf("storage: reading a to-do: %w", err)
 	}
-	return s.fromModel(m)
+	return s.fromModel(m, id, ownerID)
 }
 
 func (s *TodoStore) UpdateTodo(ctx context.Context, t todo.Todo) error {
@@ -139,7 +140,7 @@ func (s *TodoStore) ListTodos(ctx context.Context, ownerID uuid.UUID) ([]todo.To
 	}
 	todos := make([]todo.Todo, 0, len(models))
 	for i := range models {
-		t, err := s.fromModel(&models[i])
+		t, err := s.fromModel(&models[i], uuid.UUID(models[i].ID), ownerID)
 		if err != nil {
 			return nil, err
 		}
