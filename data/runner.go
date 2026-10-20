@@ -1,5 +1,5 @@
-// Package data defines the transaction runner that services use to make work
-// atomic without depending on a database library.
+// Package data defines Runner, which services use to make work atomic, and
+// BunRunner, its implementation over Bun. Runner's contract has no Bun types.
 package data
 
 import (
