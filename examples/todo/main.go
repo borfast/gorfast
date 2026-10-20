@@ -75,6 +75,7 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 	auth, err := sulis.New(users, sessions, tokens, sulis.NoSecondFactors{},
 		sulis.WithCookieName(web.SessionCookieName),
 		sulis.WithEventSink(sulis.NewSlogSink(logger)),
+		sulis.WithLimiter(newLimiter()),
 		// Sign-in is password only, so nothing verifies an email address.
 		// Real applications should require email verification.
 		sulis.WithRequireVerifiedEmail(false),
@@ -134,6 +135,12 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 		return fmt.Errorf("serving: %w", err)
 	}
 	return nil
+}
+
+// newLimiter refills each account's sign-in attempts at 1 per 2 seconds, faster
+// than one IP may make them (1 per 5 seconds), so one IP cannot lock a person out.
+func newLimiter() *sulis.MemoryLimiter {
+	return sulis.NewMemoryLimiter(sulis.WithBudget("password:", sulis.Budget{Burst: 10, Interval: 2 * time.Second}))
 }
 
 // cleanSessions deletes expired sessions now and then every hour until ctx ends.

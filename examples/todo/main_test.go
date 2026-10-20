@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 	"uuid"
 
@@ -158,6 +159,37 @@ func TestRunRefusesAMalformedPostgresURLWithoutLeakingIt(t *testing.T) {
 	if strings.Contains(err.Error(), "s3cretpw") {
 		t.Errorf("error %q contains the password", err)
 	}
+}
+
+// allowed reports how many of n immediate attempts on key the limiter allows.
+func allowed(t *testing.T, l sulis.Limiter, key string, n int) int {
+	t.Helper()
+	passed := 0
+	for range n {
+		if l.Allow(t.Context(), key) == nil {
+			passed++
+		}
+	}
+	return passed
+}
+
+func TestLimiterBudgets(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		l := newLimiter()
+		const account = "password:alice@example.com"
+		if got := allowed(t, l, account, 11); got != 10 {
+			t.Errorf("%d of 11 immediate attempts on %s passed, want 10", got, account)
+		}
+		time.Sleep(2 * time.Second)
+		if got := allowed(t, l, account, 2); got != 1 {
+			t.Errorf("%d of 2 attempts on %s passed 2 seconds later, want 1", got, account)
+		}
+
+		const ip = "password:ip:192.0.2.1"
+		if got := allowed(t, l, ip, 21); got != 20 {
+			t.Errorf("%d of 21 immediate attempts on %s passed, want Sulis's 20", got, ip)
+		}
+	})
 }
 
 func TestRunDeletesExpiredSessions(t *testing.T) {
