@@ -53,9 +53,53 @@ func Load(target any, prefix string, defaults map[string]any, envFile string) er
 	}
 
 	if err := k.Unmarshal("", target); err != nil {
-		return fmt.Errorf("unmarshalling config: %w", err)
+		return unmarshalError(prefix, err)
 	}
 	return nil
+}
+
+// unmarshalError names each setting that did not decode. It drops the decoder's
+// message, which can quote the value, and a value may be a secret.
+func unmarshalError(prefix string, err error) error {
+	p := NewProblems(prefix)
+	for _, key := range failedKeys(err) {
+		p.Invalid(key, "has a value that does not parse")
+	}
+	if err := p.Err(); err != nil {
+		return err
+	}
+	return errors.New("config: the settings do not fit target, which must be a pointer to a struct")
+}
+
+// failedKeys returns the deepest key each decoder error names. Matching the Name
+// method of mapstructure's DecodeError avoids importing mapstructure.
+func failedKeys(err error) []string {
+	var keys []string
+	seen := map[string]bool{}
+	var walk func(err error) bool
+	walk = func(err error) bool {
+		found := false
+		switch u := err.(type) {
+		case interface{ Unwrap() []error }:
+			for _, e := range u.Unwrap() {
+				found = walk(e) || found
+			}
+		case interface{ Unwrap() error }:
+			if e := u.Unwrap(); e != nil {
+				found = walk(e)
+			}
+		}
+		if n, ok := err.(interface{ Name() string }); ok && !found && n.Name() != "" {
+			if !seen[n.Name()] {
+				seen[n.Name()] = true
+				keys = append(keys, n.Name())
+			}
+			return true
+		}
+		return found
+	}
+	walk(err)
+	return keys
 }
 
 // TransformKey turns TODO_DATABASE__MAX_CONNS with prefix TODO_ into database.max_conns.

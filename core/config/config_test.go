@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,5 +157,48 @@ func TestLoadHidesEnvFileContentsOnParseError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "SECRET") {
 		t.Errorf("error %q contains env file contents", err)
+	}
+}
+
+func TestLoadNamesTheVariableButNotTheValueOnABadValue(t *testing.T) {
+	t.Setenv("TODO_SERVER__READ_TIMEOUT", "SECRET30x")
+
+	var cfg testConfig
+	err := config.Load(&cfg, "TODO_", testDefaults(), "")
+	if err == nil {
+		t.Fatal("expected an error for a duration that does not parse")
+	}
+	if !strings.Contains(err.Error(), "TODO_SERVER__READ_TIMEOUT") {
+		t.Errorf("error %q does not name TODO_SERVER__READ_TIMEOUT", err)
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("error %q contains the value", err)
+	}
+}
+
+func TestLoadNamesEveryBadVariableButNoValue(t *testing.T) {
+	t.Setenv("TODO_SERVER__READ_TIMEOUT", "SECRET30x")
+	t.Setenv("TODO_LOG__LEVEL", "SECRETLOUD")
+
+	// slog.Level parses through UnmarshalText, whose error quotes the value.
+	var cfg struct {
+		Server struct {
+			ReadTimeout time.Duration `koanf:"read_timeout"`
+		} `koanf:"server"`
+		Log struct {
+			Level slog.Level `koanf:"level"`
+		} `koanf:"log"`
+	}
+	err := config.Load(&cfg, "TODO_", nil, "")
+	if err == nil {
+		t.Fatal("expected an error for two values that do not parse")
+	}
+	for _, want := range []string{"TODO_SERVER__READ_TIMEOUT", "TODO_LOG__LEVEL"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %s", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "SECRET") {
+		t.Errorf("error %q contains a value", err)
 	}
 }
