@@ -25,8 +25,8 @@ It prints the address it listens on. The default database is the SQLite file
 ## Localhost only
 
 Run it on localhost only. Anywhere else it needs TLS, and behind a proxy every
-user would share one sign-in rate limit, because the client address would be the
-proxy's.
+user would share one sign-in and sign-up rate limit, because the client address
+would be the proxy's.
 
 For a PostgreSQL database that is not on localhost, add `sslmode=verify-full` to
 `TODO_DATABASE__URL`: with no `sslmode`, or with `require`, the driver does not
@@ -42,6 +42,18 @@ applications should require email verification.
 Failure lockout is off on purpose: it lets anyone lock a person out of their
 account. Turn it on only for a clear reason.
 
+Sign-in attempts are still rate limited for each account: 10 at once, then 1
+every 2 seconds. Sulis's default allows 1 every 30 seconds, slower than one IP
+may try (1 every 5 seconds), so one IP could keep a person from signing in. At 1
+every 2 seconds that takes several IPs, and guessing one password is still
+limited to about 43,000 attempts a day.
+
+## Busy server
+
+Each sign-up and sign-in hashes the password with Argon2, which uses 64 MiB. At
+most 4 run at once. Another one gets status 503 with `Retry-After: 1` and its
+form again, with a message to try again.
+
 ## Browsers
 
 The session cookie is `Secure`. Chrome and Firefox accept it on
@@ -49,3 +61,14 @@ The session cookie is `Secure`. Chrome and Firefox accept it on
 
 Browsers that send `Origin` without `Sec-Fetch-Site` (Safari before 16.4, Firefox
 before 90) cannot submit forms, because the same-origin check refuses them.
+
+Forms posted from a page on another port of localhost are refused too. Browsers
+call that same-site, but cookies are not separated by port, so such a page could
+read the CSRF cookie.
+
+## Logs
+
+Sulis's security events go to the log. Those from a sign-up, sign-in or sign-out
+are logged when its transaction ends. Those from a transaction that rolled back
+carry `transaction=rolled_back`: any change they report, such as a new account,
+was undone.
