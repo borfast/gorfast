@@ -5,7 +5,7 @@ go 1.27.0
 toolchain go1.27.2
 
 require (
-	github.com/borfast/sulis v0.6.0
+	github.com/borfast/sulis v0.7.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/knadh/koanf/parsers/dotenv v1.1.3
