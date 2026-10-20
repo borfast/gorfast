@@ -106,7 +106,10 @@ func TestBunRunnerCommitFailureWinsOverOutcome(t *testing.T) {
 		}
 		r := data.NewBunRunner(db, func(tx bun.IDB) (bun.IDB, error) { return tx, nil })
 		err := r.Run(t.Context(), func(ctx context.Context, repos bun.IDB) (error, error) {
-			return errOutcome, insert(ctx, repos)
+			if err := insert(ctx, repos); err != nil {
+				t.Errorf("insert: %v, want nil so that only the commit fails", err)
+			}
+			return errOutcome, nil
 		})
 		if err == nil || errors.Is(err, errOutcome) {
 			t.Errorf("Run returned %v, want a commit error and not errOutcome", err)
