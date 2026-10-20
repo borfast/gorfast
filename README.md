@@ -89,6 +89,9 @@ Generate a key with `go run github.com/borfast/gorfast/crypt/cmd/newkey@f9e66db3
 pinned to a reviewed commit.
 See the [crypt spec](docs/superpowers/specs/2026-10-02-crypt-design.md#6-keys-bindings-and-rotation) for rotation.
 
+`data.Runner` runs a function in a transaction it owns. Return `(outcome, nil)` to
+commit writes that must survive an expected failure, and `(nil, err)` to roll back.
+
 Run the tests with:
 
 ```bash
