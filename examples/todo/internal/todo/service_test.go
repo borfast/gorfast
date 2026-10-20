@@ -290,6 +290,8 @@ func TestSignInKeepsTheFailedAttemptCount(t *testing.T) {
 
 func TestSignInStorageFailureIsNotAWrongPassword(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		// The application leaves lockout off. It is on here so that a wrong
+		// password writes, and the test can make that write fail.
 		f := newFixture(t, db, sulis.WithFailureLockout(5, time.Minute, time.Hour))
 		signUp(t, f, f.service(storage.Binder(f.base, f.enc)), "alice@example.com")
 		svc := f.service(f.binder(func(tx bun.IDB) sulis.UserStore {
@@ -513,6 +515,36 @@ func TestEditAndSetDone(t *testing.T) {
 		}
 		if err := svc.Edit(ctx, alice, uuid.NewV7(), "no such to-do"); !errors.Is(err, todo.ErrNotFound) {
 			t.Errorf("Edit of an unknown ID = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestConcurrentEditAndSetDoneKeepBoth(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		ctx := t.Context()
+		f, svc := setup(t, db)
+		alice, _ := signUp(t, f, svc, "alice@example.com")
+		store := storage.NewTodoStore(db, f.enc)
+		for round := range 50 {
+			item := add(t, svc, alice, "before")
+			text := fmt.Sprintf("after %d", round)
+			var editErr, doneErr error
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Go(func() { <-start; editErr = svc.Edit(ctx, alice, item.ID, text) })
+			wg.Go(func() { <-start; doneErr = svc.SetDone(ctx, alice, item.ID, true) })
+			close(start)
+			wg.Wait()
+			if editErr != nil || doneErr != nil {
+				t.Fatalf("round %d: Edit = %v, SetDone = %v; want both nil", round, editErr, doneErr)
+			}
+			got, err := store.GetTodo(ctx, alice, item.ID)
+			if err != nil {
+				t.Fatalf("round %d: GetTodo: %v", round, err)
+			}
+			if got.Text != text || !got.Done {
+				t.Fatalf("round %d: to-do = %q, done %v; want %q, done true", round, got.Text, got.Done, text)
+			}
 		}
 	})
 }

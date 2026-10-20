@@ -224,10 +224,13 @@ func (s *Service) Delete(ctx context.Context, userID, id uuid.UUID) error {
 	})
 }
 
-// update reads userID's to-do id, changes it and writes it back in one
-// transaction. It returns ErrNotFound if userID has no to-do id.
+// update changes userID's to-do id, or returns ErrNotFound. The lock comes
+// first, so a concurrent change cannot be overwritten by one that read before it.
 func (s *Service) update(ctx context.Context, userID, id uuid.UUID, change func(*Todo)) error {
 	return s.run.Run(ctx, func(ctx context.Context, repos Repos) (error, error) {
+		if err := repos.Profiles.LockProfile(ctx, userID); err != nil {
+			return nil, err
+		}
 		t, err := repos.Todos.GetTodo(ctx, userID, id)
 		if err != nil {
 			return nil, err
