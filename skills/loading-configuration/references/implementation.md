@@ -122,7 +122,7 @@ func Load() (*Config, error) {
 
 	var cfg Config
 	if err := k.Unmarshal("", &cfg); err != nil {
-		return nil, fmt.Errorf("unmarshaling config: %w", err)
+		return nil, unmarshalError(err)
 	}
 
 	if err := validate(&cfg); err != nil {
@@ -144,6 +144,56 @@ func transformKey(s string) string {
 	return s
 }
 
+// variable is the inverse of transformKey: server.read_timeout -> MYAPP_SERVER__READ_TIMEOUT
+func variable(key string) string {
+	return EnvPrefix + strings.ToUpper(strings.ReplaceAll(key, ".", "__"))
+}
+
+// unmarshalError names each variable that did not decode. It drops the decoder's
+// message, which can quote the value, and a value may be a secret.
+func unmarshalError(err error) error {
+	keys := failedKeys(err)
+	if len(keys) == 0 {
+		return errors.New("config: the settings do not fit Config")
+	}
+	parts := make([]string, len(keys))
+	for i, key := range keys {
+		parts[i] = variable(key) + " has a value that does not parse"
+	}
+	return errors.New("config: " + strings.Join(parts, "; "))
+}
+
+// failedKeys returns the deepest key each decoder error names. Matching the Name
+// method of mapstructure's DecodeError avoids importing mapstructure.
+func failedKeys(err error) []string {
+	var keys []string
+	seen := map[string]bool{}
+	var walk func(err error) bool
+	walk = func(err error) bool {
+		found := false
+		switch u := err.(type) {
+		case interface{ Unwrap() []error }:
+			for _, e := range u.Unwrap() {
+				found = walk(e) || found
+			}
+		case interface{ Unwrap() error }:
+			if e := u.Unwrap(); e != nil {
+				found = walk(e)
+			}
+		}
+		if n, ok := err.(interface{ Name() string }); ok && !found && n.Name() != "" {
+			if !seen[n.Name()] {
+				seen[n.Name()] = true
+				keys = append(keys, n.Name())
+			}
+			return true
+		}
+		return found
+	}
+	walk(err)
+	return keys
+}
+
 // validate checks that all required configuration fields are set.
 func validate(cfg *Config) error {
 	var errs []string
@@ -162,6 +212,10 @@ func validate(cfg *Config) error {
 
 Both `dotenv.ParserEnv` and the env provider hand the callback the *full*
 variable name including the prefix, which is why `transformKey` trims it.
+
+The `.env` and unmarshal errors leave out the library's message on purpose:
+both can quote a value, and values include secrets. They name the file or the
+variables instead.
 
 ## Wiring it into main.go
 
