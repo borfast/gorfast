@@ -23,6 +23,8 @@ The marketplace only needs adding once; further plugins from it install as
 
 More to follow.
 
+A working application that uses these pieces is in [`examples/todo`](examples/todo).
+
 ## Layout
 
 ```

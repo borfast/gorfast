@@ -21,3 +21,6 @@ evals/*/results/
 CLAUDE.md
 AGENTS.md
 .codegraph/
+
+# The to-do example's SQLite files
+examples/todo/todo.db*
