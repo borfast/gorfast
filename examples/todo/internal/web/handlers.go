@@ -73,6 +73,10 @@ func (h *handler) signUpForm(w http.ResponseWriter, r *http.Request) {
 func (h *handler) signUp(w http.ResponseWriter, r *http.Request) {
 	email, name := r.PostFormValue("email"), r.PostFormValue("name")
 	in, err := h.svc.SignUp(r.Context(), email, r.PostFormValue("password"), name, requestInfo(r))
+	if errors.Is(err, sulis.ErrRateLimited) {
+		h.renderAccount(w, r, "signup", http.StatusTooManyRequests, accountPage{Message: msgRateLimited, Email: email, Name: name})
+		return
+	}
 	if err != nil {
 		for _, m := range signUpMessages {
 			if errors.Is(err, m.err) {

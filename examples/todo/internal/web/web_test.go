@@ -403,6 +403,24 @@ func TestSignInRateLimited(t *testing.T) {
 	})
 }
 
+func TestSignUpRateLimited(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		f := setup(t, db, sulis.WithLimiter(refuseAll{}))
+		b := f.browser()
+		res := b.submit("/signup", "/signup", url.Values{"email": {"alice@example.com"}, "password": {password}, "name": {"Alice"}})
+		requireStatus(t, "signing up when rate limited", res, http.StatusTooManyRequests)
+		for _, want := range []string{"Too many attempts. Try again later.", `value="alice@example.com"`, `value="Alice"`} {
+			requireContains(t, "the sign-up page", res.body, want)
+		}
+		if b.cookie(web.SessionCookieName) != "" {
+			t.Error("a rate-limited sign-up set a session cookie")
+		}
+		if _, err := bunstore.NewUserStore(db).GetUserByEmail(t.Context(), "alice@example.com"); !errors.Is(err, sulis.ErrUserNotFound) {
+			t.Errorf("GetUserByEmail after a rate-limited sign-up = %v, want ErrUserNotFound", err)
+		}
+	})
+}
+
 func TestSignUpMessages(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		f := setup(t, db)
