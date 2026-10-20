@@ -96,9 +96,18 @@ func Load() (*Config, error) {
 	}
 
 	// 2. Load .env file (overrides defaults, optional)
-	if err := k.Load(file.Provider(".env"), dotenv.ParserEnv(EnvPrefix, ".", transformKey)); err != nil {
-		// .env file is optional - only fail on parse errors, not missing file
-		if !errors.Is(err, fs.ErrNotExist) {
+	// A missing file is fine; any other read error fails.
+	raw, err := file.Provider(".env").ReadBytes()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("reading .env file: %w", err)
+	}
+	if err == nil {
+		// The parser's error quotes the file, which may hold secrets, so drop it.
+		values, err := dotenv.ParserEnv(EnvPrefix, ".", transformKey).Unmarshal(raw)
+		if err != nil {
+			return nil, errors.New("config: .env does not parse")
+		}
+		if err := k.Load(confmap.Provider(values, "."), nil); err != nil {
 			return nil, fmt.Errorf("loading .env file: %w", err)
 		}
 	}
