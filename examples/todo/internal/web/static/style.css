@@ -1,0 +1,82 @@
+/* The example's only stylesheet. Pages have no inline styles, as the CSP requires. */
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: #222;
+  background: #fafafa;
+}
+
+main {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+label {
+  display: block;
+  margin-top: 0.75rem;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.4rem;
+  font: inherit;
+}
+
+button {
+  margin-top: 0.75rem;
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #b33;
+  background: #fde8e8;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+header button,
+.todos button {
+  margin-top: 0;
+}
+
+.filter {
+  margin-top: 1.5rem;
+}
+
+.todos {
+  padding: 0;
+  list-style: none;
+}
+
+.todos li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.todos .text {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+
+.done .text {
+  color: #777;
+  text-decoration: line-through;
+}

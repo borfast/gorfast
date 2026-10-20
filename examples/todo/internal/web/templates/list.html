@@ -1,0 +1,61 @@
+{{define "title"}}Your to-do list{{end}}
+
+{{define "content"}}
+<header>
+<p>Hello, {{.Name}}.</p>
+<form method="post" action="/signout">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<button type="submit">Sign out</button>
+</form>
+</header>
+
+<h1>Your to-do list</h1>
+{{with .Message}}<p class="message" role="alert">{{.}}</p>{{end}}
+
+<form method="post" action="/todos">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<label for="text">New to-do</label>
+<input id="text" name="text" type="text" required value="{{.Text}}">
+<button type="submit">Add</button>
+</form>
+
+<form method="get" action="/" class="filter">
+<label for="q">Show only to-dos containing</label>
+<input id="q" name="q" type="search" value="{{.Query}}">
+<label for="sort">Sort by</label>
+<select id="sort" name="sort">
+<option value="created"{{if eq .Sort "created"}} selected{{end}}>Date added</option>
+<option value="text"{{if eq .Sort "text"}} selected{{end}}>Text</option>
+</select>
+<button type="submit">Show</button>
+</form>
+
+{{if .Todos}}
+<ul class="todos">
+{{range .Todos}}
+<li{{if .Done}} class="done"{{end}}>
+<span class="text">{{.Text}}</span>
+<form method="post" action="/todos/{{.ID}}/done">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+{{if .Done}}
+<input type="hidden" name="done" value="false">
+<button type="submit">Mark as not done</button>
+{{else}}
+<input type="hidden" name="done" value="true">
+<button type="submit">Mark as done</button>
+{{end}}
+</form>
+<a href="/todos/{{.ID}}/edit">Edit</a>
+<form method="post" action="/todos/{{.ID}}/delete">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<button type="submit">Delete</button>
+</form>
+</li>
+{{end}}
+</ul>
+{{else if .Query}}
+<p>No to-dos contain that text.</p>
+{{else}}
+<p>You have no to-dos.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,17 @@
+{{define "title"}}Sign up{{end}}
+
+{{define "content"}}
+<h1>Sign up</h1>
+{{with .Message}}<p class="message" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/signup">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<label for="email">Email</label>
+<input id="email" name="email" type="email" autocomplete="email" required value="{{.Email}}">
+<label for="password">Password, at least 12 characters</label>
+<input id="password" name="password" type="password" autocomplete="new-password" required>
+<label for="name">Name</label>
+<input id="name" name="name" type="text" autocomplete="name" required value="{{.Name}}">
+<button type="submit">Sign up</button>
+</form>
+<p>Already have an account? <a href="/signin">Sign in</a>.</p>
+{{end}}

@@ -1,0 +1,13 @@
+{{define "title"}}Edit a to-do{{end}}
+
+{{define "content"}}
+<h1>Edit a to-do</h1>
+{{with .Message}}<p class="message" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/todos/{{.ID}}">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<label for="text">To-do</label>
+<input id="text" name="text" type="text" required value="{{.Text}}">
+<button type="submit">Save</button>
+</form>
+<p><a href="/">Back to your list</a></p>
+{{end}}
