@@ -3,15 +3,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
+	"github.com/borfast/sulis"
+
+	"github.com/borfast/gorfast/auth/bunstore"
 	"github.com/borfast/gorfast/crypt"
+	"github.com/borfast/gorfast/examples/todo/internal/storage"
 )
 
 // syncBuffer is a log destination that the server and the test use at once.
@@ -150,5 +157,67 @@ func TestRunRefusesAMalformedPostgresURLWithoutLeakingIt(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "s3cretpw") {
 		t.Errorf("error %q contains the password", err)
+	}
+}
+
+func TestRunDeletesExpiredSessions(t *testing.T) {
+	envFile := setEnv(t, newKeySpec(t), "info")
+	db, _, err := openDatabase(os.Getenv("TODO_DATABASE__URL"))
+	if err != nil {
+		t.Fatalf("openDatabase: %v", err)
+	}
+	defer db.Close()
+	if err := storage.Apply(t.Context(), db); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	sessions := bunstore.NewSessionStore(db)
+	now := time.Now().UTC()
+	for hash, expires := range map[string]time.Time{"expired": now.Add(-time.Hour), "live": now.Add(time.Hour)} {
+		session := &sulis.Session{
+			ID: uuid.NewV7(), UserID: uuid.NewV7(), TokenHash: hash, ExpiresAt: expires,
+			CreatedAt: now.Add(-2 * time.Hour), AuthenticatedAt: now.Add(-2 * time.Hour), LastSeenAt: now.Add(-2 * time.Hour),
+			IP: "192.0.2.1", UserAgent: "test",
+		}
+		if err := sessions.CreateSession(t.Context(), session); err != nil {
+			t.Fatalf("CreateSession %s: %v", hash, err)
+		}
+	}
+
+	logs := &syncBuffer{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, envFile, logs) }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, err := sessions.GetSessionByTokenHash(t.Context(), "expired")
+		if errors.Is(err, sulis.ErrSessionNotFound) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("GetSessionByTokenHash: %v", err)
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("run stopped with the expired session still there: %v\n%s", err, logs.String())
+		case <-time.After(20 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the expired session is still there:\n%s", logs.String())
+		}
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("run returned %v after cancel, want nil", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("run did not stop after cancel")
+	}
+	if _, err := sessions.GetSessionByTokenHash(t.Context(), "live"); err != nil {
+		t.Errorf("the live session: %v, want it kept", err)
 	}
 }

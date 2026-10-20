@@ -91,6 +91,18 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 		return err
 	}
 
+	// Stop cleaning before the deferred db.Close runs.
+	cleanCtx, stopCleaning := context.WithCancel(ctx)
+	cleaned := make(chan struct{})
+	go func() {
+		defer close(cleaned)
+		cleanSessions(cleanCtx, sessions, logger)
+	}()
+	defer func() {
+		stopCleaning()
+		<-cleaned
+	}()
+
 	ln, err := net.Listen("tcp", cfg.Server.Addr)
 	if err != nil {
 		return fmt.Errorf("listening: %w", err)
@@ -122,6 +134,23 @@ func run(ctx context.Context, envFile string, logOut io.Writer) error {
 		return fmt.Errorf("serving: %w", err)
 	}
 	return nil
+}
+
+// cleanSessions deletes expired sessions now and then every hour until ctx ends.
+// Sulis never deletes them, and each one keeps an IP address and a user agent.
+func cleanSessions(ctx context.Context, sessions *bunstore.SessionStore, logger *slog.Logger) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		if err := sessions.CleanExpired(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("cleaning expired sessions failed", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // openDatabase opens PostgreSQL for a postgres:// URL and a SQLite file otherwise.
