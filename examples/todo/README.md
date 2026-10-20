@@ -28,6 +28,10 @@ Run it on localhost only. Anywhere else it needs TLS, and behind a proxy every
 user would share one sign-in rate limit, because the client address would be the
 proxy's.
 
+For a PostgreSQL database that is not on localhost, add `sslmode=verify-full` to
+`TODO_DATABASE__URL`: with no `sslmode`, or with `require`, the driver does not
+check the server's certificate.
+
 ## Email verification
 
 Sign-in is password only, so nothing verifies an email address. Real
@@ -42,3 +46,6 @@ account. Turn it on only for a clear reason.
 
 The session cookie is `Secure`. Chrome and Firefox accept it on
 `http://localhost`, but other browsers may not.
+
+Browsers that send `Origin` without `Sec-Fetch-Site` (Safari before 16.4, Firefox
+before 90) cannot submit forms, because the same-origin check refuses them.

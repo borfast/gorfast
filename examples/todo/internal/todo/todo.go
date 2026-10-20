@@ -1,5 +1,5 @@
-// Package todo holds the example application's domain types and the stores
-// it needs. It never imports a database library.
+// Package todo holds the example application's domain types and the stores it
+// needs. It does not import Bun directly, and no Bun type is in its contract.
 package todo
 
 import (
@@ -34,6 +34,7 @@ type ProfileStore interface {
 	CreateProfile(ctx context.Context, p Profile) error
 	GetProfile(ctx context.Context, userID uuid.UUID) (Profile, error)
 	// LockProfile takes a write lock on the profile until the transaction ends.
+	// It must be the transaction's first statement: Add and update rely on that.
 	LockProfile(ctx context.Context, userID uuid.UUID) error
 }
 
