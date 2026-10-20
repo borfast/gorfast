@@ -421,6 +421,55 @@ func TestSignUpRateLimited(t *testing.T) {
 	})
 }
 
+func TestPasswordHashesAreCapped(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		f := setup(t, db)
+		f.signUp("alice@example.com", "Alice")
+		sessions := func() int {
+			t.Helper()
+			n, err := db.NewSelect().Table("sessions").Count(t.Context())
+			if err != nil {
+				t.Fatalf("counting sessions: %v", err)
+			}
+			return n
+		}
+		before := sessions()
+		b := f.browser()
+
+		release := web.HoldHashSlots(4)
+		defer release()
+		for _, tc := range []struct {
+			page string
+			form url.Values
+			kept []string
+		}{
+			{"/signin", url.Values{"email": {"alice@example.com"}, "password": {password}}, []string{`value="alice@example.com"`}},
+			{"/signup", url.Values{"email": {"bob@example.com"}, "password": {password}, "name": {"Bob"}}, []string{`value="bob@example.com"`, `value="Bob"`}},
+		} {
+			res := b.submit(tc.page, tc.page, tc.form)
+			requireStatus(t, "POST "+tc.page+" with every hash slot taken", res, http.StatusServiceUnavailable)
+			if got := res.header.Get("Retry-After"); got != "1" {
+				t.Errorf("POST %s: Retry-After = %q, want 1", tc.page, got)
+			}
+			for _, want := range append(tc.kept, "The server is busy. Try again in a moment.") {
+				requireContains(t, "the page from POST "+tc.page, res.body, want)
+			}
+		}
+		release()
+
+		if b.cookie(web.SessionCookieName) != "" {
+			t.Error("a refused sign-in or sign-up set a session cookie")
+		}
+		if n := sessions(); n != before {
+			t.Errorf("%d sessions after refused sign-ins, want %d", n, before)
+		}
+		if _, err := bunstore.NewUserStore(db).GetUserByEmail(t.Context(), "bob@example.com"); !errors.Is(err, sulis.ErrUserNotFound) {
+			t.Errorf("GetUserByEmail after a refused sign-up = %v, want ErrUserNotFound", err)
+		}
+		b.signIn("alice@example.com")
+	})
+}
+
 func TestSignUpMessages(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		f := setup(t, db)

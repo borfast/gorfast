@@ -22,6 +22,7 @@ const (
 	msgInternal         = "Something went wrong."
 	msgTooLarge         = "The form is too large."
 	msgBadForm          = "The form could not be read."
+	msgBusy             = "The server is busy. Try again in a moment."
 )
 
 var (
@@ -66,13 +67,42 @@ type (
 	errorPage struct{ Message string }
 )
 
+// hashSlots caps the sign-ups and sign-ins in progress. Each runs an Argon2
+// hash of 64 MiB by default, so 4 at once keep that memory to 256 MiB.
+var hashSlots = make(chan struct{}, 4)
+
+// withHashSlot calls fn holding a hash slot and reports true. When every slot
+// is taken it reports false at once, without calling fn.
+func withHashSlot(fn func()) bool {
+	select {
+	case hashSlots <- struct{}{}:
+	default:
+		return false
+	}
+	defer func() { <-hashSlots }()
+	fn()
+	return true
+}
+
+// busy shows a sign-up or sign-in form again, for a request withHashSlot refused.
+func (h *handler) busy(w http.ResponseWriter, r *http.Request, page string, data accountPage) {
+	w.Header().Set("Retry-After", "1")
+	data.Message = msgBusy
+	h.renderAccount(w, r, page, http.StatusServiceUnavailable, data)
+}
+
 func (h *handler) signUpForm(w http.ResponseWriter, r *http.Request) {
 	h.renderAccount(w, r, "signup", http.StatusOK, accountPage{})
 }
 
 func (h *handler) signUp(w http.ResponseWriter, r *http.Request) {
 	email, name := r.PostFormValue("email"), r.PostFormValue("name")
-	in, err := h.svc.SignUp(r.Context(), email, r.PostFormValue("password"), name, requestInfo(r))
+	var in todo.SignedIn
+	var err error
+	if !withHashSlot(func() { in, err = h.svc.SignUp(r.Context(), email, r.PostFormValue("password"), name, requestInfo(r)) }) {
+		h.busy(w, r, "signup", accountPage{Email: email, Name: name})
+		return
+	}
 	if errors.Is(err, sulis.ErrRateLimited) {
 		h.renderAccount(w, r, "signup", http.StatusTooManyRequests, accountPage{Message: msgRateLimited, Email: email, Name: name})
 		return
@@ -96,7 +126,12 @@ func (h *handler) signInForm(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) signIn(w http.ResponseWriter, r *http.Request) {
 	email := r.PostFormValue("email")
-	in, err := h.svc.SignIn(r.Context(), email, r.PostFormValue("password"), requestInfo(r))
+	var in todo.SignedIn
+	var err error
+	if !withHashSlot(func() { in, err = h.svc.SignIn(r.Context(), email, r.PostFormValue("password"), requestInfo(r)) }) {
+		h.busy(w, r, "signin", accountPage{Email: email})
+		return
+	}
 	switch {
 	case err == nil:
 		h.startSession(w, r, in)
