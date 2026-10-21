@@ -2,7 +2,7 @@ module github.com/borfast/gorfast
 
 go 1.27.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/borfast/sulis v0.7.0
