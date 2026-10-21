@@ -66,6 +66,10 @@ func (s *Service) SignUp(ctx context.Context, email, password, name string, ri s
 	var in SignedIn
 	err := s.run.Run(ctx, func(ctx context.Context, repos Repos) (error, error) {
 		user, session, token, err := repos.Auth.Register(ctx, email, password, ri)
+		if errors.Is(err, sulis.ErrRateLimited) {
+			// Nothing was written, so commit: its event then logs without transaction=rolled_back.
+			return err, nil
+		}
 		if err != nil {
 			return nil, err
 		}

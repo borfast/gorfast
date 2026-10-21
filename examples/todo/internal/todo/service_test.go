@@ -258,6 +258,37 @@ func TestSignUpFailureAfterRegisterLeavesNothing(t *testing.T) {
 	})
 }
 
+// refuseAll is a limiter that refuses every key.
+type refuseAll struct{}
+
+func (refuseAll) Allow(context.Context, string) error { return errFail }
+
+func TestRateLimitedSignUpLogsWithoutTheRollbackLabel(t *testing.T) {
+	testdb.Each(t, func(t *testing.T, db *bun.DB) {
+		var logs strings.Builder
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		f := newFixture(t, db, sulis.WithLimiter(refuseAll{}), sulis.WithEventSink(events.NewSink(logger)))
+		svc := todo.NewService(events.Hold(data.NewBunRunner(db, storage.Binder(f.base, f.enc)), logger))
+
+		_, err := svc.SignUp(t.Context(), "alice@example.com", password, "Alice", sulis.RequestInfo{IP: "192.0.2.1"})
+		if !errors.Is(err, sulis.ErrRateLimited) {
+			t.Fatalf("SignUp = %v, want ErrRateLimited", err)
+		}
+		var tripped []string
+		for line := range strings.Lines(logs.String()) {
+			if strings.Contains(line, "kind=ratelimit.tripped") {
+				tripped = append(tripped, line)
+			}
+		}
+		if len(tripped) != 1 || strings.Contains(tripped[0], "transaction=") {
+			t.Errorf("the rate limit event was logged as %q, want once without a transaction label", tripped)
+		}
+		if n := count(t, db, "users"); n != 0 {
+			t.Errorf("%d rows in users after a rate-limited sign-up, want 0", n)
+		}
+	})
+}
+
 func TestSignUpChecksTheName(t *testing.T) {
 	testdb.Each(t, func(t *testing.T, db *bun.DB) {
 		ctx := t.Context()
