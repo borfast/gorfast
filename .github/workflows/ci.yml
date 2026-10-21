@@ -43,7 +43,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          # The newest 1.27 release, so a Go security fix reaches CI without a go.mod change.
+          go-version: 1.27.x
           check-latest: true
 
       - name: Verify go.mod and go.sum are tidy
