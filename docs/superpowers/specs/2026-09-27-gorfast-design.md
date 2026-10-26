@@ -112,8 +112,8 @@ gorfast/              github.com/borfast/gorfast
   crypt/              encryption at rest: keyring, versioned envelope, Sealed column type
   data/               Bun integration: connection, transaction helpers (section 10), fixtures, seeding
   auth/bunstore/      Sulis store interfaces implemented over Bun
-  http/               router, middleware stack, request binding and validation, error mapping
-  view/               html/template layouts and partials, forms, flash, CSRF, HTMX helpers
+  http/               deferred; revisit only when a real consumer needs reusable HTTP behavior
+  view/               html/template layouts and partials, forms, flash, HTMX helpers
   api/                JSON presenters, problem+json
   jobs/               queue interface, worker loop, backends
   mail/               templating, sending, development mailbox
@@ -328,16 +328,16 @@ designed on paper ahead of a real consumer.
 2. `core` and `data`, extracted from what slice 1 turned out to need.
 3. `http` — deferred after reviewing the to-do consumer; see [the step 3 deferral design](2026-10-26-http-step-3-deferral-design.md).
 4. `view` and `api`, as peers.
-5. `examples/` completed: a signed-in CRUD application covering steps 1 to 4,
-   built HTML-first with JSON endpoints beside it.
+5. `examples/` completed: a signed-in CRUD application using the packages
+   that proved useful through step 4, built HTML-first with JSON endpoints beside it.
 
 The example application does not wait for step 5. It starts small as soon as
 step 2 begins and grows with each package, because composition problems only
 show up when packages are wired together, and isolated packages hide them. Its
 first operation should be signed in, run inside a transaction, and write an
 encrypted field: that one flow exercises `auth/bunstore`, `crypt`, the
-transaction semantics of section 10, and later CSRF and forms in `http` and
-`view`.
+transaction semantics of section 10. The application's CSRF protection and
+forms later extend that flow without assigning their eventual package ownership.
 6. `jobs` and `mail`.
 7. `cmd/gorfast` and the skills rewrite. Last, because a generator can only be
    written once the API it generates against is real.
