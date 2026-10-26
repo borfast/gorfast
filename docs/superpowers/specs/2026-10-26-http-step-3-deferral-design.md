@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-26
 
-**Status:** Approved by Raúl on 2026-10-26
+**Status:** Approved by the project owner on 2026-10-26
 
 **Context:** [Gorfast design](2026-09-27-gorfast-design.md) §§2, 8–10 and the [to-do example design](2026-10-19-example-todo-design.md)
 
@@ -10,7 +10,7 @@
 
 Roadmap step 3 originally proposed a Gorfast `http` package for routing, middleware, request binding and validation, and error mapping. The to-do example is the real consumer from which that package would be extracted. Its HTTP code does not yet show a reusable API that earns a new package. Defer the extraction until a concrete consumer need appears.
 
-Raúl wants applications to remain compatible with `net/http` and free to organize their routes as they choose. Gorfast should not make a route-file layout or a router abstraction part of its runtime contract. A later CLI may generate an editable file that puts routes in one place; that is a starting point for an application, not a convention the library enforces.
+The project owner wants applications to remain compatible with `net/http` and free to organize their routes as they choose. Gorfast should not make a route-file layout or a router abstraction part of its runtime contract. A later CLI may generate an editable file that puts routes in one place; that is a starting point for an application, not a convention the library enforces.
 
 ## Evidence from the to-do consumer
 
@@ -56,10 +56,10 @@ Reopen an `http` package proposal when another real consumer shows repeated HTTP
 
 ## Separate Sulis boundary follow-up
 
-The to-do app calls Sulis's `RequireSameOrigin` and `RequireCSRFToken` around the whole mux. They protect every POST, including sign-up and sign-in, so their policy is broader than authenticated operations. Raúl raised whether generic HTTP origin and CSRF protection belongs in an authentication library.
+The to-do app calls Sulis's `RequireSameOrigin` and `RequireCSRFToken` around the whole mux. They protect every POST, including sign-up and sign-in, so their policy is broader than authenticated operations. The project owner raised whether generic HTTP origin and CSRF protection belongs in an authentication library.
 
 A separate Sulis design task should assess that boundary and choose the owner of those protections. This spec does not choose a destination or authorize moving them. Keep the current application behavior in place meanwhile. Any later move must preserve protection of unauthenticated forms, token reuse across tabs, cross-origin rejection, error handling and event reporting, and the existing browser-flow tests should prove the migration. The follow-up can evaluate Sulis's auth-specific cookie and session integration independently from its generic HTTP middleware.
 
 ## Completion and open decisions
 
-This step is complete when Raúl approves this design as the record of the deferral. There is no implementation or test run in this step because it changes documentation only. A future consumer or the separate Sulis follow-up can start its own design and plan when its need is concrete.
+This step is complete with the project owner's approval of this design as the record of the deferral. There is no implementation or test run in this step because it changes documentation only. A future consumer or the separate Sulis follow-up can start its own design and plan when its need is concrete.
