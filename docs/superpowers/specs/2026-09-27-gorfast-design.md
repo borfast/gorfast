@@ -326,7 +326,7 @@ designed on paper ahead of a real consumer.
 1a. `crypt`, then the second-factor stores in `auth/bunstore`, each its own
     plan. Neither depends on the other.
 2. `core` and `data`, extracted from what slice 1 turned out to need.
-3. `http`.
+3. `http` — deferred after reviewing the to-do consumer; see [the step 3 deferral design](2026-10-26-http-step-3-deferral-design.md).
 4. `view` and `api`, as peers.
 5. `examples/` completed: a signed-in CRUD application covering steps 1 to 4,
    built HTML-first with JSON endpoints beside it.
